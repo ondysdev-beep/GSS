@@ -1,0 +1,177 @@
+name: CI / Release
+
+# Single source of truth for validation and release builds.
+# Replaces the previous build.yml / build-linux.yml / build-windows.yml /
+# release.yml, which overlapped and could trigger concurrently on the same
+# tag with no shared test gate (see audit R-07).
+#
+# - Every push/PR to main/master: run "validate" only (typecheck, lint, tests).
+# - Pushing a `v*` tag: run "validate" first, then build + publish a draft
+#   GitHub Release only if validate passed. This is the only workflow that
+#   creates releases, so there is no risk of duplicate/competing releases.
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: TypeScript check (sdk/)
+        run: npm run typecheck:sdk
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:run
+
+  build:
+    name: Build (${{ matrix.platform }} / ${{ matrix.edition }})
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        # PRO builds override productName to "GSS-PRO" so the installer
+        # filename differs from the FREE build — otherwise both editions
+        # would produce identically-named installer files and collide when
+        # uploaded as assets to the same GitHub Release (a latent bug
+        # inherited from the previous build.yml, fixed here).
+        include:
+          - platform: windows-latest
+            edition: FREE
+            args: ''
+          - platform: windows-latest
+            edition: PRO
+            args: '--features pro --config {"productName":"GSS-PRO","plugins":{"updater":{"endpoints":["https://github.com/ondysdev-beep/GSS/releases/latest/download/latest-pro.json"]}}}'
+          - platform: ubuntu-22.04
+            edition: FREE
+            args: ''
+          - platform: ubuntu-22.04
+            edition: PRO
+            args: '--features pro --config {"productName":"GSS-PRO","plugins":{"updater":{"endpoints":["https://github.com/ondysdev-beep/GSS/releases/latest/download/latest-pro.json"]}}}'
+          - platform: macos-latest
+            edition: FREE
+            args: '--target aarch64-apple-darwin'
+          - platform: macos-latest
+            edition: FREE
+            args: '--target x86_64-apple-darwin'
+          # NOTE: macOS PRO builds are not currently produced (this matches
+          # the scope of the previous release.yml, which never built PRO for
+          # macOS either — not a regression from this consolidation, but a
+          # known gap worth revisiting separately).
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libappindicator3-dev librsvg2-dev patchelf \
+            libssl-dev pkg-config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ${{ matrix.platform }}-${{ matrix.edition }}
+
+      - run: npm ci
+
+      - name: Generate app icons
+        run: node generate-icons.cjs
+
+      - name: Build and publish draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Auto-updater signing (see SECURITY.md "Auto-update signing key").
+          # tauri-action detects these and automatically signs each bundle +
+          # generates the updater manifest (latest-free.json/latest-pro.json,
+          # via createUpdaterArtifacts in tauri.conf.json) as release assets.
+          # No password was set on the key (see SECURITY.md for why that's
+          # the correct choice for CI-only signing) — the third var is kept
+          # empty on purpose, not omitted, so a future password-protected
+          # key swap doesn't silently do nothing.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'GSS ${{ github.ref_name }}'
+          releaseBody: |
+            Download the installer for your platform:
+            - **Windows**: `.msi` (recommended) or `.exe` (NSIS)
+            - **macOS**: `.dmg`
+            - **Linux**: `.deb` or `.AppImage`
+
+            FREE and PRO builds are separate downloads (PRO unlocks exports,
+            AutoTuner, Monte Carlo and Parameter Sweep — see README).
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  deploy-web:
+    name: Deploy web version (Cloudflare Pages)
+    needs: validate
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+
+      # Buildí FREE (/) i PRO (/pro/) a slučuje je do jedné složky —
+      # sdílet doménu je nutné, protože AI klíč se ukládá do localStorage
+      # (viz platform/web.ts), a ten se mezi subdoménami nesdílí.
+      - name: Build web (FREE + PRO)
+        run: npm run build:web:site
+
+      # Vyžaduje 2 GitHub Secrets, které je potřeba nastavit ručně
+      # (Settings → Secrets and variables → Actions):
+      #   CLOUDFLARE_API_TOKEN  — Cloudflare dashboard → My Profile → API Tokens
+      #                            → "Edit Cloudflare Workers" template stačí
+      #   CLOUDFLARE_ACCOUNT_ID — Cloudflare dashboard → pravý panel na
+      #                            kterékoli doméně, nebo v URL po přihlášení
+      # `projectName` musí odpovídat existujícímu Cloudflare Pages projektu
+      # (založí se automaticky při prvním nasazení, pokud ještě neexistuje —
+      # ale je potřeba mít Cloudflare účet, ten si nemůžu založit za tebe).
+      - name: Deploy to Cloudflare Pages
+        if: ${{ vars.CLOUDFLARE_PAGES_ENABLED == 'true' }}
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: gss-web
+          directory: dist-web-site

@@ -1,0 +1,18 @@
+{
+	"nodes": [
+		{"id": "income", "type": 1, "position": {"x": 50, "y": 200}, "data": {"resource": "gold", "rate": 10.0}},
+		{"id": "splitter", "type": 7, "position": {"x": 250, "y": 200}, "data": {"split_mode": 1, "output_count": 3, "weights": "5,3,2"}},
+		{"id": "savings", "type": 0, "position": {"x": 500, "y": 50}, "data": {"resource": "gold", "capacity": 5000}},
+		{"id": "spending", "type": 0, "position": {"x": 500, "y": 200}, "data": {"resource": "gold", "capacity": 2000}},
+		{"id": "investment", "type": 0, "position": {"x": 500, "y": 350}, "data": {"resource": "gold", "capacity": 1000}},
+		{"id": "shop", "type": 3, "position": {"x": 700, "y": 200}, "data": {"resource": "gold", "rate": 2.0}}
+	],
+	"connections": [
+		{"from_node": "income", "from_port": 0, "to_node": "splitter", "to_port": 0},
+		{"from_node": "splitter", "from_port": 0, "to_node": "savings", "to_port": 0},
+		{"from_node": "splitter", "from_port": 1, "to_node": "spending", "to_port": 0},
+		{"from_node": "splitter", "from_port": 2, "to_node": "investment", "to_port": 0},
+		{"from_node": "spending", "from_port": 0, "to_node": "shop", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

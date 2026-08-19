@@ -1,0 +1,22 @@
+{
+	"nodes": [
+		{"id": "daily_xp", "type": 1, "position": {"x": 50, "y": 100}, "data": {"resource": "bp_xp", "rate": 4.0}},
+		{"id": "quest_xp", "type": 1, "position": {"x": 50, "y": 300}, "data": {"resource": "bp_xp", "rate": 2.0}},
+		{"id": "bp_pool", "type": 0, "position": {"x": 300, "y": 200}, "data": {"resource": "bp_xp", "capacity": 10000}},
+		{"id": "tier_gate", "type": 4, "position": {"x": 500, "y": 100}, "data": {"variable": "bp_xp", "operator": 1, "value": 500}},
+		{"id": "free_rewards", "type": 1, "position": {"x": 700, "y": 100}, "data": {"resource": "coins", "rate": 5.0}},
+		{"id": "coins_pool", "type": 0, "position": {"x": 900, "y": 100}, "data": {"resource": "coins", "capacity": 50000}},
+		{"id": "premium_gate", "type": 4, "position": {"x": 500, "y": 300}, "data": {"variable": "bp_xp", "operator": 1, "value": 1000}},
+		{"id": "premium_rewards", "type": 1, "position": {"x": 700, "y": 300}, "data": {"resource": "gems", "rate": 1.0}},
+		{"id": "gems_pool", "type": 0, "position": {"x": 900, "y": 300}, "data": {"resource": "gems", "capacity": 500}}
+	],
+	"connections": [
+		{"from_node": "daily_xp", "from_port": 0, "to_node": "bp_pool", "to_port": 0},
+		{"from_node": "quest_xp", "from_port": 0, "to_node": "bp_pool", "to_port": 0},
+		{"from_node": "free_rewards", "from_port": 0, "to_node": "tier_gate", "to_port": 0},
+		{"from_node": "tier_gate", "from_port": 0, "to_node": "coins_pool", "to_port": 0},
+		{"from_node": "premium_rewards", "from_port": 0, "to_node": "premium_gate", "to_port": 0},
+		{"from_node": "premium_gate", "from_port": 0, "to_node": "gems_pool", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

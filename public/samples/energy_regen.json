@@ -1,0 +1,12 @@
+{
+	"nodes": [
+		{"id": "regen", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "energy", "rate": 2.0}},
+		{"id": "energy_pool", "type": 0, "position": {"x": 300, "y": 150}, "data": {"resource": "energy", "capacity": 100}},
+		{"id": "action_cost", "type": 3, "position": {"x": 550, "y": 150}, "data": {"resource": "energy", "rate": 5.0}}
+	],
+	"connections": [
+		{"from_node": "regen", "from_port": 0, "to_node": "energy_pool", "to_port": 0},
+		{"from_node": "energy_pool", "from_port": 0, "to_node": "action_cost", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

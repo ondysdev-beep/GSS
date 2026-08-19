@@ -1,0 +1,14 @@
+{
+	"nodes": [
+		{"id": "monster_drops", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "loot", "rate": 3.0}},
+		{"id": "rarity_roll", "type": 5, "position": {"x": 300, "y": 150}, "data": {"success_chance": 15}},
+		{"id": "rare_items", "type": 0, "position": {"x": 550, "y": 50}, "data": {"resource": "loot", "capacity": 50}},
+		{"id": "common_items", "type": 0, "position": {"x": 550, "y": 250}, "data": {"resource": "loot", "capacity": 500}}
+	],
+	"connections": [
+		{"from_node": "monster_drops", "from_port": 0, "to_node": "rarity_roll", "to_port": 0},
+		{"from_node": "rarity_roll", "from_port": 0, "to_node": "rare_items", "to_port": 0},
+		{"from_node": "rarity_roll", "from_port": 1, "to_node": "common_items", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

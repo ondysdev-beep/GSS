@@ -1,0 +1,14 @@
+{
+	"nodes": [
+		{"id": "rest_regen", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "stamina", "rate": 1.5}},
+		{"id": "potion_regen", "type": 1, "position": {"x": 50, "y": 300}, "data": {"resource": "stamina", "rate": 0.5}},
+		{"id": "stamina_pool", "type": 0, "position": {"x": 300, "y": 200}, "data": {"resource": "stamina", "capacity": 50}},
+		{"id": "action_drain", "type": 3, "position": {"x": 550, "y": 200}, "data": {"resource": "stamina", "rate": 3.0}}
+	],
+	"connections": [
+		{"from_node": "rest_regen", "from_port": 0, "to_node": "stamina_pool", "to_port": 0},
+		{"from_node": "potion_regen", "from_port": 0, "to_node": "stamina_pool", "to_port": 0},
+		{"from_node": "stamina_pool", "from_port": 0, "to_node": "action_drain", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

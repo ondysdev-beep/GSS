@@ -1,0 +1,17 @@
+{
+	"nodes": [
+		{"id": "forage", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "food", "rate": 3.0}},
+		{"id": "food_pool", "type": 0, "position": {"x": 250, "y": 150}, "data": {"resource": "food", "capacity": 100}},
+		{"id": "hunger_drain", "type": 3, "position": {"x": 450, "y": 150}, "data": {"resource": "food", "rate": 4.0}},
+		{"id": "starvation_gate", "type": 4, "position": {"x": 450, "y": 300}, "data": {"variable": "food", "operator": 2, "value": 10}},
+		{"id": "hp_pool", "type": 0, "position": {"x": 250, "y": 300}, "data": {"resource": "hp", "capacity": 100, "initial": 100}},
+		{"id": "hp_drain", "type": 3, "position": {"x": 650, "y": 300}, "data": {"resource": "hp", "rate": 2.0}}
+	],
+	"connections": [
+		{"from_node": "forage", "from_port": 0, "to_node": "food_pool", "to_port": 0},
+		{"from_node": "food_pool", "from_port": 0, "to_node": "hunger_drain", "to_port": 0},
+		{"from_node": "hp_pool", "from_port": 0, "to_node": "starvation_gate", "to_port": 0},
+		{"from_node": "starvation_gate", "from_port": 0, "to_node": "hp_drain", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

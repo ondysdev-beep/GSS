@@ -1,0 +1,17 @@
+{
+	"nodes": [
+		{"id": "gold_mine", "type": 1, "position": {"x": 50, "y": 100}, "data": {"resource": "gold", "rate": 10.0}},
+		{"id": "gem_mine", "type": 1, "position": {"x": 50, "y": 300}, "data": {"resource": "gems", "rate": 0.5}},
+		{"id": "gold_pool", "type": 0, "position": {"x": 300, "y": 100}, "data": {"resource": "gold", "capacity": 5000}},
+		{"id": "gem_pool", "type": 0, "position": {"x": 300, "y": 300}, "data": {"resource": "gems", "capacity": 100}},
+		{"id": "gold_shop", "type": 3, "position": {"x": 550, "y": 100}, "data": {"resource": "gold", "rate": 3.0}},
+		{"id": "gem_shop", "type": 3, "position": {"x": 550, "y": 300}, "data": {"resource": "gems", "rate": 0.1}}
+	],
+	"connections": [
+		{"from_node": "gold_mine", "from_port": 0, "to_node": "gold_pool", "to_port": 0},
+		{"from_node": "gem_mine", "from_port": 0, "to_node": "gem_pool", "to_port": 0},
+		{"from_node": "gold_pool", "from_port": 0, "to_node": "gold_shop", "to_port": 0},
+		{"from_node": "gem_pool", "from_port": 0, "to_node": "gem_shop", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

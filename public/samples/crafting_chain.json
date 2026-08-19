@@ -1,0 +1,25 @@
+{
+	"nodes": [
+		{"id": "ore_source", "type": 1, "position": {"x": 50, "y": 100}, "data": {"resource": "ore", "rate": 3.0}},
+		{"id": "wood_source", "type": 1, "position": {"x": 50, "y": 300}, "data": {"resource": "wood", "rate": 2.0}},
+		{"id": "ore_pool", "type": 0, "position": {"x": 250, "y": 100}, "data": {"resource": "ore", "capacity": 200}},
+		{"id": "wood_pool", "type": 0, "position": {"x": 250, "y": 300}, "data": {"resource": "wood", "capacity": 200}},
+		{"id": "smelter", "type": 2, "position": {"x": 450, "y": 100}, "data": {"input_resource": "ore", "input_amount": 2, "output_resource": "ingot", "output_amount": 1, "cycle_time": 1.0}},
+		{"id": "ingot_pool", "type": 0, "position": {"x": 650, "y": 100}, "data": {"resource": "ingot", "capacity": 100}},
+		{"id": "splitter", "type": 7, "position": {"x": 450, "y": 300}, "data": {"split_mode": 1, "output_count": 2, "weights": "3,1"}},
+		{"id": "plank_pool", "type": 0, "position": {"x": 650, "y": 250}, "data": {"resource": "wood", "capacity": 150}},
+		{"id": "fuel_pool", "type": 0, "position": {"x": 650, "y": 400}, "data": {"resource": "wood", "capacity": 50}},
+		{"id": "fuel_drain", "type": 3, "position": {"x": 850, "y": 400}, "data": {"resource": "wood", "rate": 0.5}}
+	],
+	"connections": [
+		{"from_node": "ore_source", "from_port": 0, "to_node": "ore_pool", "to_port": 0},
+		{"from_node": "wood_source", "from_port": 0, "to_node": "wood_pool", "to_port": 0},
+		{"from_node": "ore_pool", "from_port": 0, "to_node": "smelter", "to_port": 0},
+		{"from_node": "smelter", "from_port": 0, "to_node": "ingot_pool", "to_port": 0},
+		{"from_node": "wood_pool", "from_port": 0, "to_node": "splitter", "to_port": 0},
+		{"from_node": "splitter", "from_port": 0, "to_node": "plank_pool", "to_port": 0},
+		{"from_node": "splitter", "from_port": 1, "to_node": "fuel_pool", "to_port": 0},
+		{"from_node": "fuel_pool", "from_port": 0, "to_node": "fuel_drain", "to_port": 0}
+	],
+	"simulation_seed": 99999
+}

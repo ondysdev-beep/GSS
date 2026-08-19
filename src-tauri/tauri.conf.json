@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "GSS",
+  "version": "3.3.0",
+  "identifier": "com.neopryus.gss",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "GSS — Game Systems Simulator",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: asset: https://asset.localhost; connect-src 'self' https: ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZDQzcwQURDQ0M3NDAxRkIKUldUN0FYVE0zQXJIL0ZEL0ZtWjFEMUt5TzVHaVZCV1pTZ0MvMzk3NDRrN0dnK2dmK0prSXJJRDAK",
+      "endpoints": [
+        "https://github.com/ondysdev-beep/GSS/releases/latest/download/latest-free.json"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "publisher": "Neopryus",
+    "copyright": "Copyright © 2025-2026 Neopryus",
+    "shortDescription": "Design, simulate and balance idle game economies",
+    "longDescription": "GSS (Game Systems Simulator) is a standalone desktop tool for indie developers. Design node-based economy graphs, run simulations, detect bottlenecks and exploits, and export balanced data to Unity, Godot or any engine.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ]
+      }
+    }
+  }
+}

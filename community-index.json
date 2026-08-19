@@ -1,0 +1,50 @@
+[
+  {
+    "id": "idle_tycoon",
+    "name": "Idle Tycoon",
+    "author": "GSS Team (official starter)",
+    "description": "Basic gold mine → storage → shop loop. The simplest economy: source, pool, drain.",
+    "category": "Idle",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/idle_tycoon.json"
+  },
+  {
+    "id": "crafting_chain",
+    "name": "Crafting Chain",
+    "author": "GSS Team (official starter)",
+    "description": "Multi-resource crafting pipeline with a splitter. Demonstrates converters and splitters.",
+    "category": "RPG",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/crafting_chain.json"
+  },
+  {
+    "id": "gacha_system",
+    "name": "Gacha System",
+    "author": "GSS Team (official starter)",
+    "description": "Chance-based gacha pull with rare/common split. Uses a Chance node for probability.",
+    "category": "Gacha",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/gacha_system.json"
+  },
+  {
+    "id": "energy_regen",
+    "name": "Energy Regen",
+    "author": "GSS Team (official starter)",
+    "description": "Energy regeneration vs. action cost. Classic mobile game stamina system.",
+    "category": "Mobile",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/energy_regen.json"
+  },
+  {
+    "id": "dual_currency",
+    "name": "Dual Currency",
+    "author": "GSS Team (official starter)",
+    "description": "Soft currency (gold) and hard currency (gems) flowing independently.",
+    "category": "F2P",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/dual_currency.json"
+  },
+  {
+    "id": "battle_pass",
+    "name": "Battle Pass",
+    "author": "GSS Team (official starter)",
+    "description": "Battle pass with free and premium reward tracks gated by XP milestones.",
+    "category": "F2P",
+    "url": "https://raw.githubusercontent.com/ondysdev-beep/GSS/master/public/samples/battle_pass.json"
+  }
+]

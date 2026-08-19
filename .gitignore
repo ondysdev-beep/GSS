@@ -1,0 +1,27 @@
+node_modules/
+dist/
+dist-ssr/
+dist-web/
+dist-web-site/
+*.local
+
+src-tauri/target/
+src-tauri/gen/
+
+.DS_Store
+Thumbs.db
+
+coverage/
+.nyc_output/
+
+*.pem
+*.key
+.env
+.env.*
+
+# Never allow accidental exports of license/download keys or other customer
+# data to be committed from the project root (see SECURITY.md, R-02).
+/gss*.txt
+/gss*.csv
+/*download-key*
+/*license-key*

@@ -1,0 +1,12 @@
+{
+	"nodes": [
+		{"id": "gold_mine", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "gold", "rate": 5.0}},
+		{"id": "gold_pool", "type": 0, "position": {"x": 300, "y": 150}, "data": {"resource": "gold", "capacity": 1000}},
+		{"id": "shop_drain", "type": 3, "position": {"x": 550, "y": 150}, "data": {"resource": "gold", "rate": 1.0}}
+	],
+	"connections": [
+		{"from_node": "gold_mine", "from_port": 0, "to_node": "gold_pool", "to_port": 0},
+		{"from_node": "gold_pool", "from_port": 0, "to_node": "shop_drain", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

@@ -1,0 +1,15 @@
+{
+	"nodes": [
+		{"id": "xp_source", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "xp", "rate": 8.0}},
+		{"id": "xp_pool", "type": 0, "position": {"x": 250, "y": 150}, "data": {"resource": "xp", "capacity": 500}},
+		{"id": "level_gate", "type": 4, "position": {"x": 450, "y": 150}, "data": {"variable": "xp", "operator": 1, "value": 100}},
+		{"id": "rewards", "type": 1, "position": {"x": 650, "y": 150}, "data": {"resource": "gold", "rate": 20.0}},
+		{"id": "gold_pool", "type": 0, "position": {"x": 850, "y": 150}, "data": {"resource": "gold", "capacity": 10000}}
+	],
+	"connections": [
+		{"from_node": "xp_source", "from_port": 0, "to_node": "xp_pool", "to_port": 0},
+		{"from_node": "rewards", "from_port": 0, "to_node": "level_gate", "to_port": 0},
+		{"from_node": "level_gate", "from_port": 0, "to_node": "gold_pool", "to_port": 0}
+	],
+	"simulation_seed": 42
+}

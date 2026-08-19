@@ -1,0 +1,18 @@
+{
+	"nodes": [
+		{"id": "ore_mine", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "ore", "rate": 6.0}},
+		{"id": "ore_pool", "type": 0, "position": {"x": 250, "y": 150}, "data": {"resource": "ore", "capacity": 200}},
+		{"id": "smelter", "type": 2, "position": {"x": 450, "y": 150}, "data": {"input_resource": "ore", "input_amount": 3, "output_resource": "ingot", "output_amount": 1, "cycle_time": 2.0}},
+		{"id": "ingot_pool", "type": 0, "position": {"x": 650, "y": 150}, "data": {"resource": "ingot", "capacity": 100}},
+		{"id": "forge", "type": 2, "position": {"x": 850, "y": 150}, "data": {"input_resource": "ingot", "input_amount": 2, "output_resource": "sword", "output_amount": 1, "cycle_time": 5.0}},
+		{"id": "sword_pool", "type": 0, "position": {"x": 1050, "y": 150}, "data": {"resource": "sword", "capacity": 50}}
+	],
+	"connections": [
+		{"from_node": "ore_mine", "from_port": 0, "to_node": "ore_pool", "to_port": 0},
+		{"from_node": "ore_pool", "from_port": 0, "to_node": "smelter", "to_port": 0},
+		{"from_node": "smelter", "from_port": 0, "to_node": "ingot_pool", "to_port": 0},
+		{"from_node": "ingot_pool", "from_port": 0, "to_node": "forge", "to_port": 0},
+		{"from_node": "forge", "from_port": 0, "to_node": "sword_pool", "to_port": 0}
+	],
+	"simulation_seed": 42
+}
