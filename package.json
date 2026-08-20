@@ -15,8 +15,8 @@
     "check:version": "node scripts/check-version.cjs",
     "sdk:example": "tsx sdk/example.ts",
     "typecheck:sdk": "tsc --noEmit -p sdk/tsconfig.json",
-    "build:web:free": "tsc && VITE_PLATFORM=web VITE_EDITION=free vite build --outDir dist-web/free --base /",
-    "build:web:pro": "tsc && VITE_PLATFORM=web VITE_EDITION=pro vite build --outDir dist-web/pro --base /pro/",
+    "build:web:free": "tsc && cross-env VITE_PLATFORM=web VITE_EDITION=free vite build --outDir dist-web/free --base /",
+    "build:web:pro": "tsc && cross-env VITE_PLATFORM=web VITE_EDITION=pro vite build --outDir dist-web/pro --base /pro/",
     "build:web": "npm run build:web:free && npm run build:web:pro",
     "build:web:site": "npm run build:web && node scripts/combine-web-builds.cjs"
   },
@@ -48,6 +48,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "@vitest/coverage-v8": "^2.0.4",
     "autoprefixer": "^10.4.19",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.26",
