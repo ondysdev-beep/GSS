@@ -33,7 +33,12 @@ if (!tag) {
 const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8' })
 
 const release = JSON.parse(gh('release', 'view', tag, '--json', 'assets,body'))
-const assets = release.assets.map((a) => ({ name: a.name, url: a.url }))
+// The release is still a draft here, and a draft's asset URLs point to a
+// temporary "untagged-…" path that returns 404 once the release is
+// published. Build the public download URL from the tag instead.
+const repo = process.env.GITHUB_REPOSITORY || 'ondysdev-beep/GSS'
+const downloadUrl = (name) => `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`
+const assets = release.assets.map((a) => ({ name: a.name, url: downloadUrl(a.name) }))
 const names = new Set(assets.map((a) => a.name))
 
 const sigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gss-sigs-'))
