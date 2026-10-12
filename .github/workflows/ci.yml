@@ -186,11 +186,14 @@ jobs:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
           ITCH_GAME: ${{ vars.ITCH_GAME || 'neopryus/idle-economy-simulator' }}
         run: |
+          # Accepts "user/game" as well as a page URL ("https://user.itch.io/game").
+          GAME=$(printf '%s' "$ITCH_GAME" | sed -E 's#^https?://##; s#^([^./]+)\.itch\.io/#\1/#; s#/+$##')
+          case "$GAME" in */*) ;; *) echo "ITCH_GAME must look like user/game, got: $ITCH_GAME"; exit 1 ;; esac
           if [ "$RUNNER_OS" = "Windows" ]; then OS=windows; else OS=linux; fi
           curl -sSfL -o butler.zip "https://broth.itch.zone/butler/$OS-amd64/LATEST/archive/default"
           unzip -q butler.zip -d butler-bin
           chmod +x butler-bin/butler* || true
-          ./butler-bin/butler push pro-out "$ITCH_GAME:$OS-pro" --userversion "${GITHUB_REF_NAME#v}"
+          ./butler-bin/butler push pro-out "$GAME:$OS-pro" --userversion "${GITHUB_REF_NAME#v}"
 
       # Without BUTLER_API_KEY the installers are kept for 1 day as a workflow
       # artifact (Actions → this run → Artifacts) for a manual itch.io upload.
