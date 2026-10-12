@@ -85,7 +85,7 @@ export function DiffViewerPanel() {
     try {
       const result = await platform.openFile(['gss', 'json'])
       if (!result) return
-      const parsed = normalizeGraph(JSON.parse(result.content), result.path.split(/[\/]/).pop() ?? 'Uploaded graph')
+      const parsed = normalizeGraph(JSON.parse(result.content), result.path.split(/[\\/]/).pop() ?? 'Uploaded graph')
       setCompareGraph(parsed)
       setCompareLabel(`${parsed.name} (file)`)
       setError(null)
