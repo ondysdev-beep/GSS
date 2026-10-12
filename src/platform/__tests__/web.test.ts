@@ -2,28 +2,27 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { webPlatform } from '../web'
 import { PlatformUnsupportedError } from '../types'
 
-describe('webPlatform — AI klíč (localStorage)', () => {
+describe('webPlatform — AI klíč se na webu neukládá (AI Generator tam nefunguje)', () => {
   beforeEach(() => localStorage.clear())
 
-  it('hasAnthropicApiKey vrací false, pokud nic není uloženo', async () => {
+  it('AI Generator je na webu označený jako nepodporovaný', () => {
+    expect(webPlatform.supportsAiGenerator).toBe(false)
+  })
+
+  it('hasAnthropicApiKey vrací vždy false', async () => {
+    localStorage.setItem('gss_ai_api_key', 'sk-ant-legacy')
     expect(await webPlatform.hasAnthropicApiKey()).toBe(false)
   })
 
-  it('saveAnthropicApiKey uloží klíč, hasAnthropicApiKey ho pak najde', async () => {
-    await webPlatform.saveAnthropicApiKey('sk-ant-test123')
-    expect(await webPlatform.hasAnthropicApiKey()).toBe(true)
+  it('saveAnthropicApiKey klíč neuloží do localStorage a vyhodí PlatformUnsupportedError', async () => {
+    await expect(webPlatform.saveAnthropicApiKey('sk-ant-test123')).rejects.toBeInstanceOf(PlatformUnsupportedError)
+    expect(localStorage.getItem('gss_ai_api_key')).toBeNull()
   })
 
-  it('saveAnthropicApiKey ořízne bílé znaky a odmítne prázdný klíč', async () => {
-    await webPlatform.saveAnthropicApiKey('  sk-ant-test  ')
-    expect(localStorage.getItem('gss_ai_api_key')).toBe('sk-ant-test')
-    await expect(webPlatform.saveAnthropicApiKey('   ')).rejects.toThrow()
-  })
-
-  it('clearAnthropicApiKey klíč odstraní', async () => {
-    await webPlatform.saveAnthropicApiKey('sk-ant-test123')
+  it('clearAnthropicApiKey uklidí klíč uložený staršími verzemi', async () => {
+    localStorage.setItem('gss_ai_api_key', 'sk-ant-legacy')
     await webPlatform.clearAnthropicApiKey()
-    expect(await webPlatform.hasAnthropicApiKey()).toBe(false)
+    expect(localStorage.getItem('gss_ai_api_key')).toBeNull()
   })
 })
 
@@ -55,13 +54,18 @@ describe('webPlatform — saveFile (Blob download)', () => {
     const createObjectURL = vi.fn(() => 'blob:mock-url')
     const revokeObjectURL = vi.fn()
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+    vi.useFakeTimers()
 
     const result = await webPlatform.saveFile(['gss'], 'test.gss', '{"foo":"bar"}')
     expect(result).toBe('test.gss')
     expect(clickSpy).toHaveBeenCalledOnce()
     expect(createObjectURL).toHaveBeenCalledOnce()
+    // URL se uvolní až po spuštění stahování, ne okamžitě
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(2000)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
 
+    vi.useRealTimers()
     createElementSpy.mockRestore()
     vi.unstubAllGlobals()
   })

@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Extensions GSS legitimately reads/writes today (project files + export
-/// formats). Rejecting anything else is defense-in-depth: these commands
+/// Extensions GSS legitimately reads/writes today (project files, export
+/// formats and the HTML report/share exports). Rejecting anything else is defense-in-depth: these commands
 /// are reachable from any JS `invoke()` call in the webview, not only from
 /// the native save/open dialogs that currently apply their own filters —
 /// this validates that assumption instead of relying on it (audit R-11).
-const ALLOWED_EXTENSIONS: &[&str] = &["gss", "json", "csv", "cs", "gd", "ts"];
+const ALLOWED_EXTENSIONS: &[&str] = &["gss", "json", "csv", "cs", "gd", "ts", "html"];
 
 fn validate_path(path: &str) -> Result<(), String> {
     if path.trim().is_empty() {
@@ -23,7 +23,7 @@ fn validate_path(path: &str) -> Result<(), String> {
     }
 }
 
-/// Read a .gss file from disk. Returns file contents as string.
+/// Read a project/text file (allowed extensions only). Returns file contents as string.
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<String, String> {
     validate_path(&path)?;

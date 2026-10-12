@@ -12,8 +12,8 @@ export interface Recommendation {
   confidence: number
 }
 
-const MAX_PER_RUN      = 5
-const MAX_PER_FAILURE  = 2
+const MAX_PER_RUN       = 5
+const MAX_FAILURE_RECS  = 2   // celkový limit doporučení odvozených ze selhání (ne "na jedno selhání")
 
 // ==================== MAIN API ====================
 
@@ -27,9 +27,14 @@ export function generateRecommendations(
   // Priority 1: kritická selhání
   let failureCount = 0
   for (const failure of verdictReport.failure_report.failures) {
-    if (failureCount >= MAX_PER_FAILURE) break
+    if (failureCount >= MAX_FAILURE_RECS) break
     const rec = createRecForFailure(failure, systemParameters, usedParams)
-    if (rec) { recs.push(rec); failureCount++ }
+    // Fallback doporučení (bez nalezeného parametru) se mohou opakovat pro
+    // stejný cíl — stejný target_parameter nemá smysl ukazovat dvakrát.
+    if (rec && !recs.some((r) => r.target_parameter === rec.target_parameter)) {
+      recs.push(rec)
+      failureCount++
+    }
   }
 
   // Priority 2: nízká zdravotní sub-skóre
@@ -72,7 +77,8 @@ function recInfiniteGrowth(
 ): Recommendation {
   const details = failure.details ?? {}
   const resourceName = String(details['resource_name'] ?? 'resource')
-  const growthRate = Number(details['growth_rate_per_cycle'] ?? 1.5)
+  const rawGrowth = Number(details['growth_rate_per_cycle'] ?? 1.5)
+  const growthRate = Number.isFinite(rawGrowth) && rawGrowth > 0 ? rawGrowth : 1.5
 
   const candidates = [
     `${resourceName}_production_rate`,
@@ -91,7 +97,9 @@ function recInfiniteGrowth(
         current_value: cur,
         suggested_value: sug,
         expected_improvement: 15,
-        trade_off: `Progression speed will decrease by ${Math.round((1 - sug / cur) * 100)}%`,
+        trade_off: cur !== 0
+          ? `Progression speed will decrease by ${Math.round((1 - sug / cur) * 100)}%`
+          : 'Slower resource accumulation',
         confidence: 0.85,
       }
     }
@@ -190,7 +198,8 @@ function recBottleneck(
 ): Recommendation {
   const details     = failure.details ?? {}
   const gateId      = String(details['gate_id'] ?? 'gate')
-  const timeMulti   = Number(details['time_multiplier'] ?? 3)
+  const rawMulti    = Number(details['time_multiplier'] ?? 3)
+  const timeMulti   = Number.isFinite(rawMulti) && rawMulti > 0 ? rawMulti : 3
   const expectedTime = Number(details['expected_time'] ?? 1)
 
   const candidates = [

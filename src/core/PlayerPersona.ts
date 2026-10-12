@@ -4,20 +4,14 @@
 import type { RNGInstance } from './SimRNG'
 import { createRNG } from './SimRNG'
 import { initState, simulateTick } from './TickEngine'
+import { validateScenarioTiming, resolveSeed, scenarioTickCount } from './ScenarioRunner'
 import type { GSSGraph } from '../types/graph'
 import { NodeType } from '../types/graph'
+import type { Persona, PersonaStrategy } from '../types/simulation'
 
-export type PersonaStrategy = 'roi' | 'cheapest' | 'priority' | 'random'
-
-export interface Persona {
-  name: string
-  cadence: number          // sekundy mezi rozhodnutími
-  strategy: PersonaStrategy
-  budget_pct: number       // max % poolu k utrácení (0–1)
-  reserve_min: number      // nikdy neutrat pod tuto částku
-  priority_list: string[]  // seřazené ID uzlů pro strategii priority
-  aggression: number       // 0.0 (pasivní) – 1.0 (agresivní)
-}
+// Jediná definice typů persony žije v types/simulation.ts (dřív byla
+// zduplikovaná zde s odlišnými komentáři k jednotkám).
+export type { Persona, PersonaStrategy }
 
 export interface PersonaPurchase {
   time: number
@@ -185,29 +179,31 @@ export function runPersonaSimulation(
   persona: Persona,
   scenario: PersonaScenario,
 ): PersonaRunResult {
-  const seed = scenario.seed ?? graph.simulation_seed ?? 42
+  validateScenarioTiming(scenario)
+  const seed = resolveSeed(scenario.seed, graph.simulation_seed)
+  // Simulace a rozhodování persony mají ODDĚLENÉ RNG proudy — dřív sdílely
+  // jeden, takže každý hod persony posunul náhodu simulace a různé persony
+  // tak neviděly stejnou ekonomiku (srovnání mezi nimi míchalo šum).
   const rng: RNGInstance = createRNG(seed)
+  const personaRng: RNGInstance = createRNG((seed ^ 0x9e3779b9) >>> 0)
 
   let state = initState(graph)
   const personaState = initPersonaState(persona)
-  const timeSeries: PersonaRunFrame[] = []
+  const timeSeries: PersonaRunFrame[] = [{ time: 0, total_wealth: _totalWealth(state.pools) }]
 
-  let lastSample = -scenario.sampling_interval
-  let totalTicks = 0
+  const ticks = scenarioTickCount(scenario.duration, scenario.dt)
+  let lastSample = 0
 
-  while (totalTicks * scenario.dt < scenario.duration) {
+  for (let totalTicks = 1; totalTicks <= ticks; totalTicks++) {
     state = simulateTick(state, graph, scenario.dt, rng)
-    totalTicks++
     const elapsed = totalTicks * scenario.dt
 
-    personaTick(persona, personaState, elapsed, state.pools, graph, rng)
+    personaTick(persona, personaState, elapsed, state.pools, graph, personaRng)
 
-    if (elapsed - lastSample >= scenario.sampling_interval || elapsed >= scenario.duration) {
-      let wealth = 0
-      for (const pool of Object.values(state.pools)) wealth += pool.amount
+    if (elapsed - lastSample >= scenario.sampling_interval - 1e-9 || totalTicks === ticks) {
       timeSeries.push({
         time: Math.round(elapsed * 1000) / 1000,
-        total_wealth: Math.round(wealth * 10000) / 10000,
+        total_wealth: _totalWealth(state.pools),
       })
       lastSample = elapsed
     }
@@ -221,6 +217,12 @@ export function runPersonaSimulation(
   }
 }
 
+function _totalWealth(pools: Record<string, { amount: number }>): number {
+  let wealth = 0
+  for (const pool of Object.values(pools)) wealth += pool.amount
+  return Math.round(wealth * 10000) / 10000
+}
+
 /** Spustí simulaci pro Casual/Grinder/Min-Maxer presety najednou. */
 export function runAllPersonaSimulations(
   graph: GSSGraph,
@@ -230,6 +232,13 @@ export function runAllPersonaSimulations(
 }
 
 // ==================== STRATEGIE ====================
+//
+// Drain = "nákup", jeho `rate` = cena/intenzita útraty.
+//   cheapest → nejlevnější dostupný nákup (nejnižší rate)
+//   roi      → nejdražší/nejsilnější dostupný nákup (nejvyšší rate — proxy
+//              pro největší dopad, GSS nemá explicitní model návratnosti)
+//   priority → první dostupný drain z priority_list, jinak roi
+//   random   → náhodný drain (seeded RNG persony)
 
 function pickDrain(
   strategy: PersonaStrategy,
@@ -240,46 +249,38 @@ function pickDrain(
   rng: RNGInstance,
 ): GSSGraph['nodes'][0] | null {
   switch (strategy) {
-    case 'cheapest': return strategyCheapest(drains, pools, graph)
+    case 'cheapest': return strategyByRate(drains, pools, graph, 'lowest')
     case 'priority': return strategyPriority(drains, persona, graph, pools)
     case 'random': {
       if (drains.length === 0) return null
       const idx = rng.randiRange(0, drains.length - 1)
       return drains[idx]
     }
-    default: return strategyROI(drains, pools, graph)
+    default: return strategyByRate(drains, pools, graph, 'highest')
   }
 }
 
-function strategyCheapest(
-  drains: GSSGraph['nodes'],
-  pools: Record<string, { amount: number }>,
-  graph: GSSGraph,
-): GSSGraph['nodes'][0] | null {
-  let best: GSSGraph['nodes'][0] | null = null
-  let bestAmount = -1
-  for (const drain of drains) {
-    const srcPid = findDrainSourcePool(String(drain.id), graph, pools)
-    if (!srcPid) continue
-    const amt = pools[srcPid].amount
-    if (amt > bestAmount) { bestAmount = amt; best = drain }
-  }
-  return best
+function drainRate(drain: GSSGraph['nodes'][0]): number {
+  const data = (drain.data ?? {}) as unknown as Record<string, unknown>
+  return typeof data.rate === 'number' && Number.isFinite(data.rate) ? data.rate : 1.0
 }
 
-function strategyROI(
+function strategyByRate(
   drains: GSSGraph['nodes'],
   pools: Record<string, { amount: number }>,
   graph: GSSGraph,
+  pick: 'lowest' | 'highest',
 ): GSSGraph['nodes'][0] | null {
   let best: GSSGraph['nodes'][0] | null = null
-  let bestRate = -1
+  let bestRate = 0
   for (const drain of drains) {
-    const data = drain.data as unknown as Record<string, unknown>
-    const rate = typeof data.rate === 'number' ? data.rate : 1.0
     const srcPid = findDrainSourcePool(String(drain.id), graph, pools)
-    if (!srcPid) continue
-    if (pools[srcPid].amount > 0 && rate > bestRate) { bestRate = rate; best = drain }
+    if (!srcPid || pools[srcPid].amount <= 0) continue
+    const rate = drainRate(drain)
+    if (best === null || (pick === 'lowest' ? rate < bestRate : rate > bestRate)) {
+      bestRate = rate
+      best = drain
+    }
   }
   return best
 }
@@ -298,20 +299,30 @@ function strategyPriority(
       }
     }
   }
-  return strategyROI(drains, pools, graph)
+  return strategyByRate(drains, pools, graph, 'highest')
 }
 
 // ==================== HELPER ====================
 
+/** First pool feeding the drain — directly, or through Gate nodes in between. */
 function findDrainSourcePool(
   drainId: string,
   graph: GSSGraph,
   pools: Record<string, { amount: number }>,
 ): string | null {
-  for (const conn of graph.connections) {
-    if (String(conn.to_node) === drainId) {
+  const gateIds = new Set(graph.nodes.filter((n) => n.type === NodeType.GATE).map((n) => String(n.id)))
+  const visited = new Set<string>([drainId])
+  const queue = [drainId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    for (const conn of graph.connections) {
+      if (String(conn.to_node) !== current) continue
       const fromId = String(conn.from_node)
       if (pools[fromId] !== undefined) return fromId
+      if (gateIds.has(fromId) && !visited.has(fromId)) {
+        visited.add(fromId)
+        queue.push(fromId)
+      }
     }
   }
   return null

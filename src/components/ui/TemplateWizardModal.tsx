@@ -7,11 +7,12 @@
 // ConfirmDialog/SettingsModal (stejný overlay pattern, žádný nový modal
 // framework).
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { TEMPLATE_LIST, getTemplate } from '../../core/GraphTemplates'
 import { customizeTemplate, type TemplateScale } from '../../core/TemplateCustomizer'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
+import { useGuardedReplace } from './useGuardedReplace'
 
 interface TemplateWizardModalProps {
   open: boolean
@@ -32,6 +33,16 @@ export function TemplateWizardModal({ open, onClose }: TemplateWizardModalProps)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [resourceName, setResourceName] = useState('')
   const [scale, setScale] = useState<TemplateScale>('medium')
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
+
+  // Escape zavře průvodce (stejně jako ostatní modaly)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   if (!open) return null
 
@@ -53,9 +64,12 @@ export function TemplateWizardModal({ open, onClose }: TemplateWizardModalProps)
       renameTo: resourceName.trim() || selected.primaryResource,
       scale,
     })
-    setGraph(graph)
-    resetSim()
-    handleClose()
+    // Rozpracovaný graf se bez potvrzení nepřepíše.
+    guard(() => {
+      setGraph(graph)
+      resetSim()
+      handleClose()
+    }, `Replace the current graph with "${selected.name}"?`)
   }
 
   function handleClose() {
@@ -67,6 +81,7 @@ export function TemplateWizardModal({ open, onClose }: TemplateWizardModalProps)
   }
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -155,5 +170,7 @@ export function TemplateWizardModal({ open, onClose }: TemplateWizardModalProps)
         )}
       </div>
     </div>
+    {confirmDialog}
+    </>
   )
 }

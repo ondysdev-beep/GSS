@@ -4,19 +4,65 @@
 
 import { SimRNG, createRNG } from './SimRNG'
 import type { RNGInstance } from './SimRNG'
-import { TICK_SPEC_VERSION, initState, simulateTick } from './TickEngine'
+import { TICK_SPEC_VERSION, initState, simulateTick, applyInitialOverrides } from './TickEngine'
 import type { GSSGraph } from '../types/graph'
+import { NodeType } from '../types/graph'
 import type {
   Scenario,
   RunReport,
   TimeSeriesFrame,
   RunSummary,
   ChanceStat,
+  SimState,
+  SimulationContext,
 } from '../types/simulation'
 import { defaultScenario } from '../types/simulation'
-import type { SimState } from '../types/simulation'
 
 export { defaultScenario }
+
+/** Upper bound for ticks in a single run — protects the UI thread from multi-minute freezes. */
+export const MAX_SCENARIO_TICKS = 1_000_000
+
+// Tolerance pro porovnání časů složených z `ticks * dt` (např. 7 × 0.1 =
+// 0.7000000000000001) — bez ní vzorkování občas vynechá snímek.
+const TIME_EPSILON = 1e-9
+
+/**
+ * Throws a descriptive Error if the scenario timing would hang or explode
+ * the simulation loop (dt ≤ 0 used to mean an infinite loop).
+ */
+export function validateScenarioTiming(sc: { duration: number; dt: number; sampling_interval: number }): void {
+  if (!Number.isFinite(sc.dt) || sc.dt <= 0) {
+    throw new Error(`Invalid scenario: dt must be a positive number (got ${sc.dt}).`)
+  }
+  if (!Number.isFinite(sc.duration) || sc.duration < 0) {
+    throw new Error(`Invalid scenario: duration must be a non-negative number (got ${sc.duration}).`)
+  }
+  if (!Number.isFinite(sc.sampling_interval) || sc.sampling_interval <= 0) {
+    throw new Error(`Invalid scenario: sampling interval must be a positive number (got ${sc.sampling_interval}).`)
+  }
+  const ticks = Math.ceil(sc.duration / sc.dt - TIME_EPSILON)
+  if (ticks > MAX_SCENARIO_TICKS) {
+    throw new Error(
+      `Scenario would need ${ticks.toLocaleString('en-US')} ticks (limit ${MAX_SCENARIO_TICKS.toLocaleString('en-US')}). Increase dt or shorten the duration.`,
+    )
+  }
+}
+
+/**
+ * Seed precedence shared by every runner: an explicit positive override
+ * wins, then a positive project seed; 0/undefined everywhere means "random".
+ */
+export function resolveSeed(seedOverride: number | undefined, projectSeed: number | undefined): number {
+  if (typeof seedOverride === 'number' && seedOverride > 0) return seedOverride >>> 0
+  if (typeof projectSeed === 'number' && projectSeed > 0) return projectSeed >>> 0
+  return SimRNG.generateSeed()
+}
+
+/** Number of ticks a scenario runs (integer counting avoids float drift). */
+export function scenarioTickCount(duration: number, dt: number): number {
+  return Math.max(0, Math.ceil(duration / dt - TIME_EPSILON))
+}
 
 // ==================== CORE RUNNER ====================
 
@@ -25,26 +71,19 @@ export function runScenario(
   scenario: Partial<Scenario> = {},
 ): RunReport {
   const sc: Scenario = { ...defaultScenario(), ...scenario }
+  validateScenarioTiming(sc)
 
   const duration = sc.duration
   const dt = sc.dt
   const samplingInterval = sc.sampling_interval
-  const initialOverrides = sc.initial_overrides
-  const thresholds = sc.thresholds
+  const thresholds = sc.thresholds ?? {}
 
-  // Determine seed
-  const projectSeed = graph.simulation_seed ?? 0
-  let effectiveSeed = sc.seed_override > 0 ? sc.seed_override : projectSeed
-  if (effectiveSeed === 0) effectiveSeed = SimRNG.generateSeed()
+  const effectiveSeed = resolveSeed(sc.seed_override, graph.simulation_seed)
   const rng: RNGInstance = createRNG(effectiveSeed)
 
-  // Initialize state
+  // Initialize state (+ initial overrides, gates re-evaluated afterwards)
   let state: SimState = initState(graph)
-
-  // Apply initial overrides
-  for (const [poolId, amount] of Object.entries(initialOverrides)) {
-    if (state.pools[poolId]) state.pools[poolId].amount = amount
-  }
+  applyInitialOverrides(state, graph, sc.initial_overrides)
 
   // Tracking
   const timeSeries: TimeSeriesFrame[] = []
@@ -53,45 +92,38 @@ export function runScenario(
   const timeToThreshold: Record<string, number> = {}
 
   for (const pid of Object.keys(state.pools)) {
-    minValues[pid] = state.pools[pid].amount
-    maxValues[pid] = state.pools[pid].amount
-    timeToThreshold[pid] = -1
+    const amt = state.pools[pid].amount
+    minValues[pid] = amt
+    maxValues[pid] = amt
+    timeToThreshold[pid] = thresholds[pid] !== undefined && amt >= thresholds[pid] ? 0 : -1
   }
 
-  // Main simulation loop — use integer tick counting to avoid floating-point accumulation
-  let lastSample = -samplingInterval
+  // Initial frame (t = 0) so charts and replay start from the real starting state
+  timeSeries.push(_frame(state, 0))
+  let lastSample = 0
+
+  // Main simulation loop — integer tick counting avoids floating-point accumulation
+  const totalTicksPlanned = scenarioTickCount(duration, dt)
   let totalTicks = 0
 
-  while (totalTicks * dt < duration) {
+  while (totalTicks < totalTicksPlanned) {
     state = simulateTick(state, graph, dt, rng)
     totalTicks++
     const elapsed = totalTicks * dt
 
-    // Update min/max and check thresholds
     for (const pid of Object.keys(state.pools)) {
       const amt = state.pools[pid].amount
       if (amt < minValues[pid]) minValues[pid] = amt
       if (amt > maxValues[pid]) maxValues[pid] = amt
 
-      if (thresholds[pid] !== undefined && timeToThreshold[pid] < 0) {
-        if (amt >= thresholds[pid]) timeToThreshold[pid] = elapsed
+      if (thresholds[pid] !== undefined && timeToThreshold[pid] < 0 && amt >= thresholds[pid]) {
+        timeToThreshold[pid] = elapsed
       }
     }
 
-    // Sample time series
-    if (elapsed - lastSample >= samplingInterval || elapsed >= duration) {
-      const frame: TimeSeriesFrame = {
-        time: Math.round(elapsed * 1000) / 1000,
-        pools: {},
-        gates: {},
-      }
-      for (const pid of Object.keys(state.pools)) {
-        frame.pools[pid] = Math.round(state.pools[pid].amount * 10000) / 10000
-      }
-      for (const gid of Object.keys(state.gate_states)) {
-        frame.gates[gid] = state.gate_states[gid]
-      }
-      timeSeries.push(frame)
+    const isLast = totalTicks === totalTicksPlanned
+    if (elapsed - lastSample >= samplingInterval - TIME_EPSILON || isLast) {
+      timeSeries.push(_frame(state, elapsed))
       lastSample = elapsed
     }
   }
@@ -108,15 +140,13 @@ export function runScenario(
     chanceStats[cid] = { successes: cr.successes, total: cr.total }
   }
 
-  const finalElapsed = totalTicks * dt
-
   const summary: RunSummary = {
     final_values: finalValues,
     min_values: minValues,
     max_values: maxValues,
     time_to_threshold: timeToThreshold,
     total_ticks: totalTicks,
-    elapsed: Math.round(finalElapsed * 1000) / 1000,
+    elapsed: Math.round(totalTicks * dt * 1000) / 1000,
   }
 
   return {
@@ -129,14 +159,30 @@ export function runScenario(
   }
 }
 
+function _frame(state: SimState, elapsed: number): TimeSeriesFrame {
+  const frame: TimeSeriesFrame = {
+    time: Math.round(elapsed * 1000) / 1000,
+    pools: {},
+    gates: {},
+  }
+  for (const pid of Object.keys(state.pools)) {
+    frame.pools[pid] = Math.round(state.pools[pid].amount * 10000) / 10000
+  }
+  for (const gid of Object.keys(state.gate_states)) {
+    frame.gates[gid] = state.gate_states[gid]
+  }
+  return frame
+}
+
 // ==================== EXPORT HELPERS ====================
 
+/** Wide CSV: one row per sampled frame, one column per pool. */
 export function reportToCSV(report: RunReport): string {
   const ts = report.time_series
   if (ts.length === 0) return ''
 
   const poolIds = Object.keys(ts[0].pools).sort()
-  const header = ['time', ...poolIds].join(',')
+  const header = ['time', ...poolIds.map(csvCell)].join(',')
 
   const rows = ts.map((frame) => {
     const cols = [frame.time.toFixed(3), ...poolIds.map((pid) => (frame.pools[pid] ?? 0).toFixed(4))]
@@ -146,10 +192,26 @@ export function reportToCSV(report: RunReport): string {
   return [header, ...rows].join('\n')
 }
 
-// ==================== CONTEXT BUILDER (for analysis pipeline) ====================
+/** Long CSV: one `time,pool_id,value` row per pool per sampled frame. */
+export function reportToLongCSV(report: RunReport): string {
+  const ts = report.time_series
+  if (ts.length === 0) return ''
+  const poolIds = Object.keys(ts[0].pools).sort()
+  const rows = ['time,pool_id,value']
+  for (const frame of ts) {
+    for (const pid of poolIds) {
+      rows.push(`${frame.time.toFixed(3)},${csvCell(pid)},${(frame.pools[pid] ?? 0).toFixed(4)}`)
+    }
+  }
+  return rows.join('\n')
+}
 
-import type { SimulationContext } from '../types/simulation'
-import { NodeType } from '../types/graph'
+/** Quotes a CSV cell if it contains a delimiter, quote or newline. */
+export function csvCell(v: string): string {
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
+
+// ==================== CONTEXT BUILDER (for analysis pipeline) ====================
 
 export function buildSimulationContext(
   report: RunReport,
@@ -168,7 +230,9 @@ export function buildSimulationContext(
   // --- player_distribution: run persona simulations if graph is provided ---
   const playerDistribution: Record<string, number> = {}
   if (graph) {
-    const baseSc: Partial<Scenario> = { ...scenario, seed_override: report.seed_used }
+    // Persony musí běžet se STEJNÝM scénářem (délka, dt…) jako hlavní běh —
+    // dřív se bez parametru `scenario` použil výchozí 60s scénář.
+    const baseSc: Partial<Scenario> = { ...report.scenario, ...scenario, seed_override: report.seed_used }
 
     // optimal = base scenario final wealth
     const optimalWealth = _sumFinalWealth(report)
@@ -196,9 +260,8 @@ export function buildSimulationContext(
       const exploiterOverrides: Record<string, number> = {}
       for (const node of graph.nodes) {
         if (node.type === NodeType.POOL) {
-          const data = node.data as unknown as Record<string, unknown>
-          const capacity = (data.capacity as number) ?? 100
-          exploiterOverrides[String(node.id)] = capacity
+          const capacity = (node.data as unknown as Record<string, unknown>)?.capacity
+          exploiterOverrides[String(node.id)] = typeof capacity === 'number' && Number.isFinite(capacity) ? capacity : 100
         }
       }
       const exploiterReport = runScenario(graph, { ...baseSc, initial_overrides: exploiterOverrides })
@@ -214,7 +277,7 @@ export function buildSimulationContext(
     const gateNodes = graph.nodes.filter((n) => n.type === NodeType.GATE)
     for (const gateNode of gateNodes) {
       const gid = String(gateNode.id)
-      // Find the first tick where gate opened
+      // Find the first frame where the gate is open
       let actualTime = -1
       for (const frame of report.time_series) {
         if (frame.gates[gid] === true) {
@@ -224,30 +287,27 @@ export function buildSimulationContext(
       }
       if (actualTime < 0) continue
 
-      // Estimate expected time: threshold / total production rate of connected sources
-      const data = gateNode.data as unknown as Record<string, unknown>
-      const threshold = (data.value as number) ?? 0
+      // Estimate expected time: threshold / total production rate of sources feeding the gated resource
+      const data = (gateNode.data ?? {}) as unknown as Record<string, unknown>
+      const threshold = typeof data.value === 'number' ? data.value : 0
+      const variable = typeof data.variable === 'string' ? data.variable : ''
       let totalSourceRate = 0
-      for (const conn of graph.connections) {
-        if (String(conn.to_node) === gid) {
-          const srcNode = graph.nodes.find((n) => String(n.id) === String(conn.from_node))
-          if (srcNode && srcNode.type === NodeType.SOURCE) {
-            const srcData = srcNode.data as unknown as Record<string, unknown>
-            totalSourceRate += (srcData.rate as number) ?? 0
-          }
-        }
+      for (const node of graph.nodes) {
+        if (node.type !== NodeType.SOURCE) continue
+        const srcData = (node.data ?? {}) as unknown as Record<string, unknown>
+        if (srcData.resource === variable && typeof srcData.rate === 'number') totalSourceRate += srcData.rate
       }
       const expectedTime = totalSourceRate > 0 ? threshold / totalSourceRate : actualTime
 
       // Count alternative paths that bypass this gate
-      const downstreamPools = new Set<string>()
+      const downstream = new Set<string>()
       for (const conn of graph.connections) {
-        if (String(conn.from_node) === gid) downstreamPools.add(String(conn.to_node))
+        if (String(conn.from_node) === gid) downstream.add(String(conn.to_node))
       }
       let altPaths = 0
       for (const conn of graph.connections) {
         if (String(conn.from_node) === gid) continue
-        if (downstreamPools.has(String(conn.to_node))) altPaths++
+        if (downstream.has(String(conn.to_node))) altPaths++
       }
 
       gateTimes[gid] = { actual_time: actualTime, expected_time: expectedTime, alternative_paths: altPaths }
@@ -277,9 +337,9 @@ function _adjustDrainRates(graph: GSSGraph, multiplier: number): GSSGraph {
     ...graph,
     nodes: graph.nodes.map((n) => {
       if (n.type !== NodeType.DRAIN) return n
-      const data = n.data as unknown as Record<string, unknown>
-      const rate = (data.rate as number) ?? 1.0
-      return { ...n, data: { ...n.data, rate: rate * multiplier } }
+      const data = (n.data ?? {}) as unknown as Record<string, unknown>
+      const rate = typeof data.rate === 'number' ? data.rate : 1.0
+      return { ...n, data: { ...data, rate: rate * multiplier } as unknown as typeof n.data }
     }),
   }
 }

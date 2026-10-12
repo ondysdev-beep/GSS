@@ -36,10 +36,13 @@ export interface DiffReport {
   summary: { added: number; removed: number; changed: number; breaking: number }
 }
 
+// Pole, jejichž změna mění výsledek simulace (vč. novějších typů uzlů:
+// Gate variable/operator, Timer, Formula, Player Action, počáteční stav poolu).
 const MAJOR_FIELDS = new Set([
-  'rate', 'capacity', 'input_amount', 'output_amount', 'cycle_time',
-  'success_chance', 'value', 'resource', 'input_resource', 'output_resource',
+  'rate', 'capacity', 'initial_amount', 'input_amount', 'output_amount', 'cycle_time',
+  'success_chance', 'value', 'variable', 'operator', 'resource', 'input_resource', 'output_resource',
   'split_mode', 'weights', 'output_count',
+  'amount', 'interval', 'expression', 'cadence',
 ])
 
 export function diffGraphs(graphA: GSSGraph, graphB: GSSGraph): DiffReport {
@@ -54,8 +57,13 @@ export function diffGraphs(graphA: GSSGraph, graphB: GSSGraph): DiffReport {
   // nález B1b), tedy během renderu, ne v ošetřeném event handleru.
   const nodesA: Record<string, (typeof graphA.nodes)[0]> = {}
   const nodesB: Record<string, (typeof graphB.nodes)[0]> = {}
-  for (const n of graphA.nodes) nodesA[String(n.id)] = { ...n, data: n.data ?? ({} as typeof n.data) }
-  for (const n of graphB.nodes) nodesB[String(n.id)] = { ...n, data: n.data ?? ({} as typeof n.data) }
+  // Stejně tak `nodes`/`connections` mohou v nahraném souboru úplně chybět.
+  const listA = Array.isArray(graphA?.nodes) ? graphA.nodes : []
+  const listB = Array.isArray(graphB?.nodes) ? graphB.nodes : []
+  const connsA = Array.isArray(graphA?.connections) ? graphA.connections : []
+  const connsB = Array.isArray(graphB?.connections) ? graphB.connections : []
+  for (const n of listA) nodesA[String(n.id)] = { ...n, data: n.data ?? ({} as typeof n.data) }
+  for (const n of listB) nodesB[String(n.id)] = { ...n, data: n.data ?? ({} as typeof n.data) }
 
   // Odstraněné uzly → BREAKING
   for (const nid of Object.keys(nodesA)) {
@@ -98,6 +106,15 @@ export function diffGraphs(graphA: GSSGraph, graphB: GSSGraph): DiffReport {
     const allKeys = new Set([...Object.keys(dataA), ...Object.keys(dataB)])
     let alreadyAdded = false
 
+    // Přejmenování uzlu (label) — kosmetická změna, ale uživatel ji má vidět.
+    if ((na.label ?? '') !== (nb.label ?? '')) {
+      paramChanges.push({ severity: 'MINOR', node_id: nid, field: 'label', old_value: na.label, new_value: nb.label })
+      nodeChanges.push({
+        type: 'CHANGED', severity: 'MINOR', node_id: nid,
+        details: `Node '${nid}' renamed: "${na.label ?? ''}" → "${nb.label ?? ''}"`,
+      })
+    }
+
     for (const k of allKeys) {
       const va = dataA[k]
       const vb = dataB[k]
@@ -119,8 +136,8 @@ export function diffGraphs(graphA: GSSGraph, graphB: GSSGraph): DiffReport {
   // Index hran
   const edgesA: Record<string, (typeof graphA.connections)[0]> = {}
   const edgesB: Record<string, (typeof graphB.connections)[0]> = {}
-  for (const e of graphA.connections) edgesA[edgeKey(e)] = e
-  for (const e of graphB.connections) edgesB[edgeKey(e)] = e
+  for (const e of connsA) edgesA[edgeKey(e)] = e
+  for (const e of connsB) edgesB[edgeKey(e)] = e
 
   // Odstraněné hrany → BREAKING
   for (const key of Object.keys(edgesA)) {

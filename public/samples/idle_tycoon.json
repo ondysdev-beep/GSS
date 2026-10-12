@@ -1,8 +1,12 @@
 {
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Idle Tycoon",
+	"description": "Gold mine → storage → shop. The simplest economy: source, pool, drain.",
 	"nodes": [
-		{"id": "gold_mine", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "gold", "rate": 5.0}},
-		{"id": "gold_pool", "type": 0, "position": {"x": 300, "y": 150}, "data": {"resource": "gold", "capacity": 1000}},
-		{"id": "shop_drain", "type": 3, "position": {"x": 550, "y": 150}, "data": {"resource": "gold", "rate": 1.0}}
+		{"id": "gold_mine", "type": 1, "label": "Gold Mine", "position": {"x": 50, "y": 150}, "data": {"resource": "gold", "rate": 5}},
+		{"id": "gold_pool", "type": 0, "label": "Gold Pool", "position": {"x": 300, "y": 150}, "data": {"resource": "gold", "capacity": 1000}},
+		{"id": "shop_drain", "type": 3, "label": "Shop Drain", "position": {"x": 550, "y": 150}, "data": {"resource": "gold", "rate": 1}}
 	],
 	"connections": [
 		{"from_node": "gold_mine", "from_port": 0, "to_node": "gold_pool", "to_port": 0},

@@ -17,8 +17,10 @@ import { diffGraphs, formatDiffChange, type DiffSeverity } from '../../core/Grap
 import { runScenario } from '../../core/ScenarioRunner'
 import { buildSimulationContext } from '../../core/ScenarioRunner'
 import { calculateHealthScore } from '../../core/HealthScoreCalculator'
+import { normalizeGraph } from '../../core/GraphNormalizer'
+import { useSimulationStore } from '../../store/simulationStore'
 import type { GSSGraph } from '../../types/graph'
-import type { HealthScore } from '../../types/simulation'
+import type { HealthScore, Scenario } from '../../types/simulation'
 
 const SEVERITY_COLOR: Record<DiffSeverity, string> = {
   BREAKING: 'text-danger',
@@ -26,10 +28,13 @@ const SEVERITY_COLOR: Record<DiffSeverity, string> = {
   MINOR: 'text-muted',
 }
 
-function safeHealthScore(graph: GSSGraph): HealthScore | null {
+function safeHealthScore(graph: GSSGraph, scenario: Scenario): HealthScore | null {
   try {
-    const report = runScenario(graph)
-    const ctx = buildSimulationContext(report, graph)
+    // Obě verze se simulují se STEJNÝM scénářem a seedem, jinak by rozdíl
+    // skóre míchal změnu grafu s náhodou (a dřív se ignoroval scénář uživatele).
+    const sc = { ...scenario, seed_override: scenario.seed_override > 0 ? scenario.seed_override : 1 }
+    const report = runScenario(graph, sc)
+    const ctx = buildSimulationContext(report, graph, sc)
     return calculateHealthScore(ctx)
   } catch {
     // Diffovaný graf nemusí být validní (např. rozpracovaná verze) —
@@ -40,6 +45,7 @@ function safeHealthScore(graph: GSSGraph): HealthScore | null {
 
 export function DiffViewerPanel() {
   const graph = useGraphStore((s) => s.graph)
+  const scenario = useSimulationStore((s) => s.scenario)
   const [snapshots] = useState<VersionSnapshot[]>(() => loadHistory())
   const [compareGraph, setCompareGraph] = useState<GSSGraph | null>(null)
   const [compareLabel, setCompareLabel] = useState<string>('')
@@ -63,13 +69,14 @@ export function DiffViewerPanel() {
   const diffError = diff?.error ?? null
   const diffResult = diff?.result ?? null
 
-  const healthA = useMemo(() => (compareGraph ? safeHealthScore(compareGraph) : null), [compareGraph])
-  const healthB = useMemo(() => safeHealthScore(graph), [graph])
+  const healthA = useMemo(() => (compareGraph ? safeHealthScore(compareGraph, scenario) : null), [compareGraph, scenario])
+  // Jen když je co porovnávat — dřív se 5 simulací spouštělo při každé změně grafu.
+  const healthB = useMemo(() => (compareGraph ? safeHealthScore(graph, scenario) : null), [compareGraph, graph, scenario])
 
   function pickSnapshot(idx: number) {
     const snap = snapshots[idx]
     if (!snap) return
-    setCompareGraph(snap.graph)
+    setCompareGraph(normalizeGraph(snap.graph, snap.label))
     setCompareLabel(`${snap.label} (${new Date(snap.timestamp).toLocaleString()})`)
     setError(null)
   }
@@ -78,12 +85,12 @@ export function DiffViewerPanel() {
     try {
       const result = await platform.openFile(['gss', 'json'])
       if (!result) return
-      const parsed = JSON.parse(result.content) as GSSGraph
+      const parsed = normalizeGraph(JSON.parse(result.content), result.path.split(/[\/]/).pop() ?? 'Uploaded graph')
       setCompareGraph(parsed)
       setCompareLabel(`${parsed.name} (file)`)
       setError(null)
     } catch (err) {
-      setError(`Failed to load file: ${err}`)
+      setError(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -134,8 +141,8 @@ export function DiffViewerPanel() {
           {/* Health score srovnání */}
           {(healthA || healthB) && (
             <div className="grid grid-cols-2 gap-2">
-              <HealthScoreCard label="Before" score={healthA} />
-              <HealthScoreCard label="After" score={healthB} delta={healthA && healthB ? healthB.total - healthA.total : undefined} />
+              <HealthScoreCard label="Compared version" score={healthA} />
+              <HealthScoreCard label="Current graph" score={healthB} delta={healthA && healthB ? healthB.total - healthA.total : undefined} />
             </div>
           )}
 

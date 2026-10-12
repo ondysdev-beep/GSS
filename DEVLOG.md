@@ -1,5 +1,34 @@
 # GSS Development Log
 
+## v3.4.0 — full code audit (all files)
+
+User-facing summary: CHANGELOG.md → "3.4.0". File-level notes:
+
+### Simulation core — tick spec v2 (`TICK_SPEC_VERSION = 2`)
+- `TickEngine.ts`: single `_deliver()` routing used by every producer. Gate = relay (open → all outputs, closed → block); `_consumeFromConnected` pulls through open gates; Chance routes into any node type, roll is `< p/100`, duplicate fallback loop removed; routing depth capped (`MAX_ROUTE_DEPTH = 64`); pool inflow uses `max(0, capacity - amount)` and initial amounts are clamped; converter buffer accepts only `input_resource` and holds ≤ one tick/cycle of input; converters with `cycle_time ≤ 0`/`input_amount ≤ 0` are skipped; Player Action fires `floor(dt/cadence)` + remainder probability; per-tick adjacency index; defensive reads of node data (`num`/`str`). New exports `evaluateGates`, `applyInitialOverrides`.
+- `ScenarioRunner.ts`: `validateScenarioTiming` (dt/duration/sampling, max 1 000 000 ticks — dt ≤ 0 used to loop forever), shared `resolveSeed`, t = 0 frame, overrides re-evaluate gates, `buildSimulationContext` defaults to `report.scenario`, long-format CSV + CSV quoting.
+- `MonteCarloSimulator.ts`, `PlayerPersona.ts`, `ParameterSweeper.ts`: same timing guard/seed rules; persona gets its own RNG stream; `cheapest`/`roi` strategies match their names; persona types live only in `types/simulation.ts`; sweep splits keys at the last dot, rejects > 2 params / > 500 runs instead of silently truncating, ignores `-1` time-to-threshold in sensitivity, uses one seed for all runs.
+- `GraphValidator.ts`: robust against untrusted input (missing arrays, wrong value types); new checks UNKNOWN_NODE_TYPE, MISSING_ID, INITIAL_EXCEEDS_CAPACITY, GATE_VARIABLE, GATE_OPERATOR, INVALID_VALUE, ROUTING_LOOP; iterative cycle DFS.
+- `FormulaEvaluator.ts`: syntax validation no longer evaluates (false "division by zero" errors), malformed numbers rejected, nesting/length limits.
+- New `GraphNormalizer.ts`: every loaded graph (file, sample, community, AI, autosave, snapshot, diff upload) is normalized; `graphStore.setGraph` normalizes too.
+- `FailureDetectors.ts`: `has_unsafe` fixed, economy collapse wired in. `VerdictSystem.ts`: coverage without state machines, no array spread on long histories. `BottleneckAnalyzer.ts`: overdrain counts all producers per resource; `whyEmpty` knows the new node types.
+- `ExploitDiscovery.ts` dedupes rotated cycles; `GraphDiffer.ts` reports label changes and treats new-node fields as MAJOR; `DeterministicJSON.ts` NaN/precision/order fixes; `RecommendationEngine.ts` guards; `autotuning/*`: SimFunction receives parameters, status/goal satisfaction computed from the best iteration, metrics for health goals, `setValue` rounds before clamping.
+- Exporters: shared `exporters/common.ts`; C#/GDScript/TS export all 10 node types with valid, unique identifiers and escaped strings; JSON export skips `undefined`.
+- Templates/samples fixed so they run as described (verified by simulating all of them); sample metadata updated.
+
+### App
+- Editor: canvas syncs from `graph.nodes`/`graph.connections` (inspector edits, undo/redo), shared `nodeCatalog.ts` (defaults/colors/names), Chance success/failure handles → `from_port`, duplicate/self connections rejected, edge style setting, shortcuts ignore text fields.
+- `graphStore`: initial graph in undo history, merged undo steps while typing (`CommandManager.push(graph, mergeKey)`), rename is undoable, undo/redo bump `graphVersion`. `settingsStore` deep-merges persisted settings; Settings defaults/edge style/subtitles/auto-save interval are wired in.
+- `useGuardedReplace` confirm before discarding unsaved work; `markClean()` after save; `NumericInput` commits only valid values.
+- Exports escape HTML; PDF/Web Share via platform save (desktop) / iframe print (web); C# file named after its class.
+- Web: AI Generator hidden and no API key in localStorage; file dialog cancel resolves; download URL revoked after the download starts.
+- Per-panel error boundaries; corrupted autosave no longer crash-loops the app.
+
+### Build / release
+- CI: `check:version` (package.json, tauri.conf.json, Cargo.toml, version.json) in `validate`; icon-overwriting `generate-icons.cjs` step removed (scripts deleted, `npm run icons` regenerates from `app-icon-source.png`); per-edition updater manifests via `scripts/generate-updater-manifests.cjs`; unique Rust cache key per macOS target.
+- Rust: unused `tokio` and `tauri-plugin-fs` removed (also `@tauri-apps/plugin-fs` on the JS side), AI request timeout 180 s with non-JSON error handling, `html` allowed for report exports.
+- `@eslint/js` declared as a dev dependency; build output folders ignored by ESLint.
+
 ## v3.2.1 -- Bug Fixes, Tech Debt, and New Features
 
 ### Phase 1 -- Critical Bug Fixes (10 fixes)
@@ -14,7 +43,7 @@
 | 1.6 | `AutoTunerPanel.tsx` | AutoTuner UI used `Math.random()` instead of seeded RNG. Fix: replaced with `createRNG` instance seeded from config, displayed seed in results. |
 | 1.7 | `ScenarioRunner.ts` | Floating-point accumulation in `elapsed += dt` caused drift over long simulations. Fix: switched to integer tick counter (`tickCount * dt`) for elapsed time calculation. |
 | 1.8 | `UpdateChecker.ts`, `CommandPalette.tsx` | Update checker and GitHub links pointed to non-existent repository URL. Fix: centralized GitHub URL constant, made update checker URL configurable via environment variable. |
-| 1.9 | `ExploitDiscovery.ts` | `calcProjections()` could produce `Infinity` when dividing by near-zero cycle times. Fix: clamped projection values to `Number.MAX_SAFE_INTEGER` and added zero-guard on divisors. |
+| 1.9 | `ExploitDiscovery.ts` | `calcProjections()` could produce `Infinity` when dividing by near-zero cycle times. Fix: clamped projection values to `MAX_PROJECTION` (1e15) and added zero-guard on divisors. |
 | 1.10 | `ExploitDiscovery.ts` | `_exploitCounter` was never reset between runs, causing stale exploit IDs. Fix: added `resetExploitCounter()` call at the start of each discovery pass. |
 
 ### Phase 2 -- Tech Debt and Code Quality (4 fixes)
@@ -224,7 +253,7 @@ Complete rewrite of GSS from Godot 4 GDScript to a modern desktop application us
 - Diagnostics bundle JSON
 
 #### Sample Projects (12 total)
-`idle_tycoon`, `rpg_loot`, `dual_currency`, `energy_regen`, `gated_progression`, `splitter_economy`, `converter_chain`, `battle_pass`, `survival_hunger`, `stamina_loop`, `gacha_pull`, `resource_chain`
+`idle_tycoon`, `rpg_loot`, `dual_currency`, `energy_regen`, `gated_progression`, `splitter_economy`, `converter_chain`, `battle_pass`, `survival_hunger`, `stamina_loop`, `gacha_system`, `crafting_chain`
 
 ---
 

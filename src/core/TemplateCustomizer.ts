@@ -48,12 +48,16 @@ function renameInExpression(expression: string, from: string, to: string): strin
   // vyhodnotil jako neznámou proměnnou (= 0). `\b` hranice slova zabraňuje
   // nechtěné shodě uvnitř jiného identifikátoru (např. "gold" v "goldfish").
   if (!from.trim()) return expression
+  // Výraz umí jen identifikátory [A-Za-z_][A-Za-z0-9_]* — jméno s mezerou
+  // apod. by výraz rozbilo (syntax error), proto se v tom případě nemění.
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(to)) return expression
   const pattern = new RegExp(`\\b${escapeRegExp(from)}\\b`, 'g')
-  return expression.replace(pattern, to)
+  // Funkce místo řetězce: `$&`, `$1`… v novém jménu se nesmí interpretovat.
+  return expression.replace(pattern, () => to)
 }
 
 function customizeNode(node: GSSNode, opts: TemplateCustomizeOptions): GSSNode {
-  const data = { ...(node.data as unknown as Record<string, unknown>) }
+  const data = { ...((node.data ?? {}) as unknown as Record<string, unknown>) }
   const factor = SCALE_FACTORS[opts.scale]
   const renameTo = opts.renameTo.trim() !== '' ? opts.renameTo : null
 
@@ -64,9 +68,10 @@ function customizeNode(node: GSSNode, opts: TemplateCustomizeOptions): GSSNode {
     } else if (key === 'expression' && typeof val === 'string' && renameTo) {
       data[key] = renameInExpression(val, opts.renameFrom, renameTo)
     } else if (SCALABLE_FIELDS.has(key) && typeof val === 'number') {
-      // Zaokrouhleno na 2 desetinná místa — zabraňuje plovoucím
-      // artefaktům typu 4.999999999 po vynásobení faktorem 0.5.
-      data[key] = Math.round(val * factor * 100) / 100
+      // Zaokrouhleno na 6 desetinných míst — zabraňuje plovoucím artefaktům
+      // typu 4.999999999, ale (na rozdíl od dřívějších 2 míst) nesrazí malé
+      // rychlosti jako 0.004 na nulu.
+      data[key] = Math.round(val * factor * 1e6) / 1e6
     }
   }
 

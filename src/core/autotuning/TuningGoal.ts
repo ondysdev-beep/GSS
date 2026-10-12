@@ -62,6 +62,12 @@ export function evaluateGoal(goal: TuningGoal, actualValue: number): GoalEvalRes
     weighted_score: 0,
   }
 
+  // Metrika, kterou simulace nedodala (NaN/Infinity), nesmí cíl "splnit".
+  if (!Number.isFinite(actualValue)) {
+    result.deviation = Infinity
+    return result
+  }
+
   switch (goal.goal_type) {
     case 'MAXIMIZE':
       result.satisfied = actualValue >= goal.target_value
@@ -78,7 +84,7 @@ export function evaluateGoal(goal: TuningGoal, actualValue: number): GoalEvalRes
       break
 
     case 'TARGET': {
-      const tolAbs = goal.target_value * goal.tolerance
+      const tolAbs = Math.abs(goal.target_value * goal.tolerance)
       result.deviation = Math.abs(actualValue - goal.target_value)
       result.satisfied = result.deviation <= tolAbs
       result.score     = tolAbs > 0 ? Math.max(0, 1 - result.deviation / tolAbs) : (result.deviation === 0 ? 1 : 0)

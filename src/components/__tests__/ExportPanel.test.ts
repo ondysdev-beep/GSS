@@ -56,11 +56,14 @@ describe('buildPDFHtml', () => {
     expect(html).toContain('87')
   })
 
-  it('does not crash on a graph name containing HTML-special characters', () => {
-    // Not a claim this is XSS-safe (this is a local print report, not
-    // rendering untrusted remote content) — just that it doesn't throw
-    // and the report still contains the essential structure.
-    expect(() => buildPDFHtml(GRAPH, REPORT, null)).not.toThrow()
+  it('escapes HTML-special characters from the graph (graphs can come from the Community Library)', () => {
+    const html = buildPDFHtml(GRAPH, REPORT, null)
+    expect(html).toContain('Test &lt;Economy&gt; &amp; &quot;Report&quot;')
+    expect(html).not.toContain('<Economy>')
+  })
+
+  it('labels the simulated time in seconds, not milliseconds', () => {
+    expect(buildPDFHtml(GRAPH, REPORT, null)).toContain('Simulated time: 12.3 s')
   })
 })
 
@@ -76,6 +79,13 @@ describe('buildWebShareHtml', () => {
     expect(html).toContain('Source')
     expect(html).toContain('Pool')
     expect(html).toContain('src1 → pool1')
+  })
+
+  it('escapes node labels so a malicious label cannot inject markup', () => {
+    const evil = { ...GRAPH, nodes: [{ ...GRAPH.nodes[0], label: '<img src=x onerror=alert(1)>' }] }
+    const html = buildWebShareHtml(evil, null)
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 
   it('handles a missing report gracefully', () => {

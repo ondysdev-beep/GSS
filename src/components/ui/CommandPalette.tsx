@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
-import { GITHUB_URL } from '../../core/UpdateChecker'
+import { GITHUB_URL, ITCH_URL } from '../../core/UpdateChecker'
+import { useGuardedReplace } from './useGuardedReplace'
 
 export interface PaletteAction {
   id: string
@@ -29,12 +30,14 @@ export function CommandPalette({ onRun, onTabChange, onLibTabChange }: Props) {
 
   const { newGraph, undo, redo, canUndo, canRedo } = useGraphStore()
   const reset = useSimulationStore((s) => s.reset)
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
 
   // Build action list
   const ACTIONS: PaletteAction[] = [
     { id: 'run', icon: '▶', category: 'Simulation', label: 'Run Simulation', shortcut: 'Ctrl+R', run: () => { onRun(); setOpen(false) } },
     { id: 'reset-sim', icon: '↺', category: 'Simulation', label: 'Reset Simulation Results', run: () => { reset(); setOpen(false) } },
-    { id: 'new', icon: '⊕', category: 'Graph', label: 'New Graph', shortcut: 'Ctrl+N', run: () => { newGraph(); setOpen(false) } },
+    // Stejně jako tlačítko New v liště: rozpracovaný graf se bez potvrzení nezahodí.
+    { id: 'new', icon: '⊕', category: 'Graph', label: 'New Graph', shortcut: 'Ctrl+N', run: () => { setOpen(false); guard(() => { newGraph(); reset() }, 'Discard current graph?') } },
     { id: 'undo', icon: '↩', category: 'Graph', label: 'Undo', shortcut: 'Ctrl+Z', run: () => { undo(); setOpen(false) }, description: canUndo ? 'Available' : 'Nothing to undo' },
     { id: 'redo', icon: '↪', category: 'Graph', label: 'Redo', shortcut: 'Ctrl+Y', run: () => { redo(); setOpen(false) }, description: canRedo ? 'Available' : 'Nothing to redo' },
     { id: 'tab-editor', icon: '⬡', category: 'Navigate', label: 'Go to Editor', run: () => { onTabChange('editor'); setOpen(false) } },
@@ -43,9 +46,12 @@ export function CommandPalette({ onRun, onTabChange, onLibTabChange }: Props) {
     { id: 'tab-library', icon: '⊖', category: 'Navigate', label: 'Go to Library', run: () => { onTabChange('library'); setOpen(false) } },
     { id: 'lib-samples', icon: '📂', category: 'Library', label: 'Browse Sample Projects', run: () => { onTabChange('library'); onLibTabChange('samples'); setOpen(false) } },
     { id: 'lib-export', icon: '↗', category: 'Library', label: 'Export Graph', run: () => { onTabChange('library'); onLibTabChange('export'); setOpen(false) } },
-    { id: 'lib-license', icon: '🔑', category: 'Library', label: 'Manage License', run: () => { onTabChange('library'); onLibTabChange('license'); setOpen(false) } },
+    { id: 'lib-history', icon: '📜', category: 'Library', label: 'Version History', run: () => { onTabChange('library'); onLibTabChange('history'); setOpen(false) } },
+    { id: 'lib-diff', icon: '⇄', category: 'Library', label: 'Compare Graph Versions (Diff)', run: () => { onTabChange('library'); onLibTabChange('diff'); setOpen(false) } },
+    { id: 'lib-community', icon: '🌐', category: 'Library', label: 'Community Library', run: () => { onTabChange('library'); onLibTabChange('community'); setOpen(false) } },
+    { id: 'lib-license', icon: '🔑', category: 'Library', label: 'Edition (FREE / PRO)', run: () => { onTabChange('library'); onLibTabChange('license'); setOpen(false) } },
     { id: 'github', icon: '⭐', category: 'Links', label: 'Star GSS on GitHub', description: GITHUB_URL, run: () => { window.open(GITHUB_URL, '_blank'); setOpen(false) } },
-    { id: 'itch', icon: '🎮', category: 'Links', label: 'Get PRO on itch.io', description: 'neopryus.itch.io', run: () => { window.open('https://neopryus.itch.io/idle-economy-simulator', '_blank'); setOpen(false) } },
+    { id: 'itch', icon: '🎮', category: 'Links', label: 'Get PRO on itch.io', description: 'neopryus.itch.io', run: () => { window.open(ITCH_URL, '_blank'); setOpen(false) } },
   ]
 
   // Fuzzy filter
@@ -87,7 +93,7 @@ export function CommandPalette({ onRun, onTabChange, onLibTabChange }: Props) {
     if (e.key === 'Enter') { e.preventDefault(); filtered[cursor]?.run() }
   }, [filtered, cursor])
 
-  if (!open) return null
+  if (!open) return confirmDialog
 
   // Group by category
   const groups: Record<string, PaletteAction[]> = {}

@@ -1,13 +1,14 @@
 // BaseAnalyzer.ts — port GDScript BaseAnalyzer.gd
 // Základní rozhraní a pomocné funkce pro všechny analyzátory systémů.
 
-export type IssueSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+// Pojmenováno odlišně od ValidationIssue IssueSeverity (types/simulation.ts), aby se typy nepletly.
+export type AnalysisSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export type HealthRating  = 'RED' | 'YELLOW' | 'GREEN' | 'DIAMOND'
 
 export interface AnalysisIssue {
   title: string
   description: string
-  severity: IssueSeverity
+  severity: AnalysisSeverity
   node_id: string
 }
 
@@ -35,7 +36,7 @@ export interface AnalysisReport {
 export function createIssue(
   title: string,
   description: string,
-  severity: IssueSeverity,
+  severity: AnalysisSeverity,
   nodeId = '',
 ): AnalysisIssue {
   return { title, description, severity, node_id: nodeId }

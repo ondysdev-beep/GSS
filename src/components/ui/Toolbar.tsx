@@ -1,15 +1,18 @@
 // Toolbar.tsx — Horní lišta nástrojů: nový graf, otevřít, uložit, nastavení simulace
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { platform } from '../../platform'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
 import { exportGSSJson } from '../../core/exporters/json'
-import type { GSSGraph } from '../../types/graph'
+import { normalizeGraph } from '../../core/GraphNormalizer'
+import { validate } from '../../core/GraphValidator'
 import { TEMPLATE_LIST, getTemplate } from '../../core/GraphTemplates'
-import { ConfirmDialog } from './ConfirmDialog'
 import { TemplateWizardModal } from './TemplateWizardModal'
 import { AIGeneratorModal } from './AIGeneratorModal'
+import { useGuardedReplace } from './useGuardedReplace'
+import { safeFileBaseName } from './fileName'
+import { NumericInput } from './NumericInput'
 
 interface ToolbarProps {
   onRun: () => void
@@ -17,78 +20,106 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ onRun, isRunning }: ToolbarProps) {
-  const { graph, isDirty, setGraph, newGraph, setName, undo, redo, canUndo, canRedo } = useGraphStore()
+  const { graph, isDirty, setGraph, newGraph, setName, markClean, undo, redo, canUndo, canRedo } = useGraphStore()
   const { scenario, setScenario } = useSimulationStore()
   const [status, setStatus] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
-  const [confirmNewOpen, setConfirmNewOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false)
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Varovat při zavíraní okna s neulozenými změnami
-  const handleBeforeUnload = useCallback((e: BeforeUnloadEvent) => {
-    if (isDirty) { e.preventDefault(); e.returnValue = '' }
-  }, [isDirty])
-  useEffect(() => {
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [handleBeforeUnload])
+  function showStatus(text: string, ms = 3000) {
+    setStatus(text)
+    if (statusTimer.current) clearTimeout(statusTimer.current)
+    statusTimer.current = setTimeout(() => setStatus(null), ms)
+  }
+  useEffect(() => () => { if (statusTimer.current) clearTimeout(statusTimer.current) }, [])
 
-  // Keyboard shortcuts: Ctrl+Z/Y (undo/redo), Ctrl+R (run), Ctrl+N (new)
+  /** Replaces the graph and clears results/issues that belonged to the previous one. */
+  function loadGraph(g: Parameters<typeof setGraph>[0]) {
+    setGraph(g)
+    useSimulationStore.getState().reset()
+    useSimulationStore.getState().setIssues(validate(useGraphStore.getState().graph))
+  }
+
+  // Varovat při zavíraní okna s neuloženými změnami
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo() }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'r') { e.preventDefault(); onRun() }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); handleNew() }
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (useGraphStore.getState().isDirty) { e.preventDefault(); e.returnValue = '' }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [undo, redo, onRun])
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
+
+  function handleNew() {
+    guard(() => {
+      newGraph()
+      useSimulationStore.getState().reset()
+      showStatus('New graph created', 2000)
+    }, 'Discard current graph?')
+  }
 
   async function handleOpen() {
     try {
       const result = await platform.openFile(['gss', 'json'])
       if (!result) return
-      const parsed = JSON.parse(result.content) as GSSGraph
-      setGraph(parsed)
-      setStatus(`Opened: ${parsed.name}`)
-      setTimeout(() => setStatus(null), 3000)
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(result.content)
+      } catch {
+        showStatus('Error: the file is not valid JSON.', 6000)
+        return
+      }
+      // Normalizace (chybějící name/label/data…) — dřív se soubor načetl tak,
+      // jak byl, a neúplný graf shodil editor nebo Save.
+      const g = normalizeGraph(parsed, result.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || 'Opened Graph')
+      guard(() => {
+        loadGraph(g)
+        const errors = useSimulationStore.getState().issues.filter((i) => i.severity === 'ERROR').length
+        showStatus(errors > 0 ? `Opened: ${g.name} — ${errors} validation error(s), see Issues` : `Opened: ${g.name}`, errors > 0 ? 6000 : 3000)
+      }, 'Open another graph?')
     } catch (err) {
-      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
+      showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, 6000)
     }
   }
 
   async function handleSave() {
     try {
       const content = exportGSSJson(graph)
-      const savedName = await platform.saveFile(['gss'], `${graph.name.replace(/\s+/g, '_')}.gss`, content)
+      const savedName = await platform.saveFile(['gss'], `${safeFileBaseName(graph.name)}.gss`, content)
       if (!savedName) return
-      setStatus(`Saved: ${savedName.split(/[\\/]/).pop()}`)
-      setTimeout(() => setStatus(null), 3000)
+      // Dřív se po uložení nikdy nezavolalo markClean() → "● Unsaved" a
+      // varování při zavírání zůstávaly i po úspěšném uložení.
+      markClean()
+      showStatus(`Saved: ${savedName.split(/[\\/]/).pop()}`)
     } catch (err) {
-      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
+      showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, 6000)
     }
   }
 
-  function handleNew() {
-    if (graph.nodes.length > 0) {
-      setConfirmNewOpen(true)
-      return
+  // Klávesové zkratky — handlery přes ref, aby listener vždy volal aktuální
+  // verzi (dřív `handleNew` chyběl v závislostech efektu → stará closure).
+  const handlers = useRef({ undo, redo, onRun, handleNew, handleSave, handleOpen })
+  handlers.current = { undo, redo, onRun, handleNew, handleSave, handleOpen }
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      const h = handlers.current
+      if (key === 'z' && !e.shiftKey) { e.preventDefault(); h.undo() }
+      else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); h.redo() }
+      else if (key === 'r') { e.preventDefault(); h.onRun() }
+      else if (key === 'n') { e.preventDefault(); h.handleNew() }
+      else if (key === 's') { e.preventDefault(); void h.handleSave() }
+      else if (key === 'o') { e.preventDefault(); void h.handleOpen() }
     }
-    newGraph()
-    setStatus('New graph created')
-    setTimeout(() => setStatus(null), 2000)
-  }
-
-  function confirmNew() {
-    setConfirmNewOpen(false)
-    newGraph()
-    setStatus('New graph created')
-    setTimeout(() => setStatus(null), 2000)
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 bg-card border-b border-border shrink-0 flex-wrap">
@@ -99,8 +130,8 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
             type="text"
             value={graph.name}
             onChange={(e) => setName(e.target.value)}
-            onBlur={() => setEditingName(false)}
-            onKeyDown={(e) => e.key === 'Enter' && setEditingName(false)}
+            onBlur={() => { if (!graph.name.trim()) setName('Untitled Economy'); setEditingName(false) }}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             autoFocus
             className="px-2 py-0.5 bg-bg border border-accent rounded text-xs text-white focus:outline-none w-40"
           />
@@ -133,10 +164,11 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
               <button
                 key={t.id}
                 className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-accent/20 hover:text-white transition-colors"
+                title={t.description}
                 onClick={() => {
-                  const g = getTemplate(t.id)
-                  if (g) { setGraph(g); useSimulationStore.getState().reset() }
                   setShowTemplates(false)
+                  const g = getTemplate(t.id)
+                  if (g) guard(() => loadGraph(g), `Replace the current graph with "${t.name}"?`)
                 }}
               >
                 {t.name}
@@ -153,12 +185,14 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
           </div>
         )}
       </div>
-      <button onClick={() => setAiGeneratorOpen(true)} className="toolbar-btn text-accent/90" title="AI Economy Generator">
-        ✨ AI
-      </button>
-      <button onClick={handleNew} className="toolbar-btn">New</button>
-      <button onClick={handleOpen} className="toolbar-btn">Open</button>
-      <button onClick={handleSave} className="toolbar-btn">Save</button>
+      {platform.supportsAiGenerator && (
+        <button onClick={() => setAiGeneratorOpen(true)} className="toolbar-btn text-accent/90" title="AI Economy Generator">
+          ✨ AI
+        </button>
+      )}
+      <button onClick={handleNew} className="toolbar-btn" title="New graph (Ctrl+N)">New</button>
+      <button onClick={handleOpen} className="toolbar-btn" title="Open .gss/.json (Ctrl+O)">Open</button>
+      <button onClick={handleSave} className="toolbar-btn" title="Save as .gss (Ctrl+S)">Save</button>
 
       <div className="w-px h-4 bg-border" />
 
@@ -182,22 +216,23 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
 
       {/* Nastavení simulace */}
       <div className="flex items-center gap-1.5">
-        <span className="text-[10px] text-muted">Seed:</span>
-        <input
-          type="number"
+        <span className="text-[10px] text-muted" title="0 = use the project seed (or a random one if that is 0)">Seed:</span>
+        <NumericInput
           value={scenario.seed_override}
-          onChange={(e) => setScenario({ seed_override: parseInt(e.target.value) || 0 })}
+          onCommit={(v) => setScenario({ seed_override: v })}
+          min={0}
+          max={4294967295}
+          integer
           className="w-20 px-2 py-0.5 bg-bg border border-border rounded text-xs text-white focus:outline-none focus:border-accent transition-colors"
         />
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[10px] text-muted">Duration:</span>
-        <input
-          type="number"
+        <span className="text-[10px] text-muted">Duration (s):</span>
+        <NumericInput
           value={scenario.duration}
-          onChange={(e) => setScenario({ duration: parseInt(e.target.value) || 60 })}
-          min={1}
-          max={100000}
+          onCommit={(v) => setScenario({ duration: v })}
+          min={0.01}
+          max={1000000}
           className="w-20 px-2 py-0.5 bg-bg border border-border rounded text-xs text-white focus:outline-none focus:border-accent transition-colors"
         />
       </div>
@@ -208,6 +243,7 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
       <button
         onClick={onRun}
         disabled={isRunning}
+        title="Run simulation (Ctrl+R)"
         className="px-3 py-1 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs rounded font-semibold transition-colors"
       >
         {isRunning ? '⏳ Running…' : '▶ Run'}
@@ -218,20 +254,15 @@ export function Toolbar({ onRun, isRunning }: ToolbarProps) {
         <span className="text-[10px] text-muted ml-auto">{status}</span>
       )}
 
-      <ConfirmDialog
-        open={confirmNewOpen}
-        title="Discard current graph?"
-        message="Any unsaved changes to the current graph will be lost. This cannot be undone."
-        confirmLabel="Discard & create new"
-        onConfirm={confirmNew}
-        onCancel={() => setConfirmNewOpen(false)}
-      />
+      {confirmDialog}
       <TemplateWizardModal open={wizardOpen} onClose={() => setWizardOpen(false)} />
-      <AIGeneratorModal
-        open={aiGeneratorOpen}
-        onClose={() => setAiGeneratorOpen(false)}
-        onOpenSettings={() => document.dispatchEvent(new CustomEvent('gss:open-settings', { detail: 'ai' }))}
-      />
+      {platform.supportsAiGenerator && (
+        <AIGeneratorModal
+          open={aiGeneratorOpen}
+          onClose={() => setAiGeneratorOpen(false)}
+          onOpenSettings={() => document.dispatchEvent(new CustomEvent('gss:open-settings', { detail: 'ai' }))}
+        />
+      )}
     </div>
   )
 }

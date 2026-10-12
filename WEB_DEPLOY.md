@@ -2,8 +2,12 @@
 
 Shrnutí architektury: `npm run build:web:site` vyrobí jednu složku
 `dist-web-site/` obsahující FREE build v kořeni a PRO build v `/pro/`.
-Musí se nahrát **na jednu doménu** (ne dvě subdomény), protože AI Generator
-API klíč se ukládá do `localStorage`, který se mezi subdoménami nesdílí.
+Nahrává se jako **jeden celek** (jedno nasazení, jedna doména).
+
+> **Pozor:** `/pro/` je obyčejná statická podsložka — kdo zná adresu, PRO
+> verzi otevře. Pokud má být PRO na webu jen pro platící, je potřeba
+> `/pro/` chránit na úrovni hostingu (např. Cloudflare Access). Viz
+> SECURITY.md → "Web edition gating".
 
 ## Manuální nasazení (nejjednodušší způsob, žádný GitHub potřeba)
 
@@ -63,14 +67,14 @@ assetům, žádný Tauri kód v bundlu) — **nemohl jsem ale spustit skutečný
 prohlížeč** (síťová omezení mého prostředí neumožnila stáhnout Chromium
 pro automatizovaný test). Doporučuju před ostrým nasazením projít appku
 naživo v prohlížeči — hlavně: otevření/uložení grafu (stažení souboru),
-AI Generator (měl by ukázat jasnou zprávu "není podporováno na webu", ne
-spadnout), Community Library, a přepnutí mezi `/` a `/pro/` pro ověření,
+AI Generator (na webu se nemá vůbec zobrazit), Community Library, a přepnutí mezi `/` a `/pro/` pro ověření,
 že se PRO funkce skutečně odemknou.
 
 ## Co na webu chybí oproti desktopu (vědomě)
 
 - **AI Generator** — vyžaduje CORS proxy (Anthropic API neposkytuje CORS
   hlavičky pro přímé volání z prohlížeče), který zatím není nasazený.
-  Zobrazí jasnou chybovou zprávu, ne pád. Viz `src/platform/web.ts`.
+  Na webu se tlačítko AI vůbec nezobrazuje a API klíč se neukládá.
+  Viz `src/platform/web.ts`.
 - **Runtime licenční klíč** — FREE/PRO na webu je čistě to, na jaké URL
   jsi (`/` vs `/pro/`), zadaný při buildu. Žádné "zadej klíč" pole.

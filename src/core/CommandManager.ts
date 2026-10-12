@@ -5,21 +5,45 @@ import type { GSSGraph } from '../types/graph'
 
 const MAX_HISTORY = 50
 
+// Po sobě jdoucí změny se stejným `mergeKey` (např. psaní do jednoho pole
+// v inspektoru) se během tohoto okna sloučí do jednoho kroku historie —
+// dřív každý stisk klávesy zabral jeden z 50 kroků undo.
+const MERGE_WINDOW_MS = 1000
+
 export interface CommandManagerState {
   history: GSSGraph[]
   cursor: number       // index posledního uloženého stavu (undo jde na cursor-1)
+  lastMergeKey: string | null
+  lastPushAt: number
 }
 
 function createState(): CommandManagerState {
-  return { history: [], cursor: -1 }
+  return { history: [], cursor: -1, lastMergeKey: null, lastPushAt: 0 }
 }
 
 /** Singleton instance — sdílena přes graphStore */
 let _state: CommandManagerState = createState()
 
 export const CommandManager = {
-  /** Zaznamenat nový snapshot po každé mutaci grafu */
-  push(graph: GSSGraph): void {
+  /**
+   * Zaznamenat nový snapshot po každé mutaci grafu. Se stejným `mergeKey`
+   * jako předchozí push (do MERGE_WINDOW_MS) se jen přepíše poslední snapshot.
+   */
+  push(graph: GSSGraph, mergeKey?: string): void {
+    const now = Date.now()
+    const canMerge =
+      mergeKey !== undefined &&
+      mergeKey === _state.lastMergeKey &&
+      now - _state.lastPushAt < MERGE_WINDOW_MS &&
+      _state.cursor === _state.history.length - 1 &&
+      _state.cursor > 0
+    _state.lastMergeKey = mergeKey ?? null
+    _state.lastPushAt = now
+    if (canMerge) {
+      _state.history[_state.cursor] = deepClone(graph)
+      return
+    }
+
     // Oříznout future stavy pokud undo proběhlo a pak byla provedena nová akce
     _state.history = _state.history.slice(0, _state.cursor + 1)
     _state.history.push(deepClone(graph))
@@ -35,6 +59,7 @@ export const CommandManager = {
   undo(): GSSGraph | null {
     if (_state.cursor <= 0) return null
     _state.cursor--
+    _state.lastMergeKey = null
     return deepClone(_state.history[_state.cursor])
   },
 
@@ -42,6 +67,7 @@ export const CommandManager = {
   redo(): GSSGraph | null {
     if (_state.cursor >= _state.history.length - 1) return null
     _state.cursor++
+    _state.lastMergeKey = null
     return deepClone(_state.history[_state.cursor])
   },
 

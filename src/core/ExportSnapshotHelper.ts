@@ -99,6 +99,24 @@ export function compareSnapshots(saved: SimSnapshot, fresh: SimSnapshot): Snapsh
     if (!(pid in fresh.pools)) diffs.push(`Pool '${pid}' is missing from the new snapshot`)
   }
 
+  // Porovnat stavy gate (dřív se zachycovaly, ale nikdy neporovnávaly)
+  for (const gid of new Set([...Object.keys(saved.gates ?? {}), ...Object.keys(fresh.gates ?? {})])) {
+    const a = saved.gates?.[gid]
+    const b = fresh.gates?.[gid]
+    if (a !== b) diffs.push(`Gate '${gid}' state changed: ${String(a)} → ${String(b)}`)
+  }
+
+  // Porovnat statistiky chance uzlů
+  for (const cid of new Set([...Object.keys(saved.chance_rolls ?? {}), ...Object.keys(fresh.chance_rolls ?? {})])) {
+    const a = saved.chance_rolls?.[cid]
+    const b = fresh.chance_rolls?.[cid]
+    if (!a || !b) {
+      diffs.push(`Chance node '${cid}' is ${a ? 'missing from the new' : 'new (not in the saved)'} snapshot`)
+    } else if (a.successes !== b.successes || a.total !== b.total) {
+      diffs.push(`Chance node '${cid}' rolls changed: ${a.successes}/${a.total} → ${b.successes}/${b.total}`)
+    }
+  }
+
   // Porovnat délky exportů
   for (const [lang, savedLen] of Object.entries(saved.export_lengths)) {
     const newLen = fresh.export_lengths[lang] ?? 0

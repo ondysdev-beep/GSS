@@ -7,12 +7,33 @@ import { useLicenseStore } from '../../store/licenseStore'
 import { compareReports } from '../../core/ScenarioComparer'
 import { runScenario } from '../../core/ScenarioRunner'
 import { runMonteCarlo } from '../../core/MonteCarloSimulator'
-import { runSweep } from '../../core/ParameterSweeper'
-import { WealthOverTimeChart } from '../charts/WealthOverTimeChart'
-import { ProductionSummaryChart } from '../charts/ProductionSummaryChart'
-import type { SweepParam } from '../../types/simulation'
+import { runSweep, MAX_SWEEP_RUNS } from '../../core/ParameterSweeper'
+import { validate, hasErrors } from '../../core/GraphValidator'
+import { NodeType } from '../../types/graph'
+import type { RunReport, SweepParam } from '../../types/simulation'
+import { NumericInput } from './NumericInput'
 
 type DashMode = 'run' | 'ab' | 'mc' | 'sweep'
+
+// Numerická pole, která má smysl sweepovat, per typ uzlu.
+const SWEEP_FIELDS: Record<number, string[]> = {
+  [NodeType.POOL]: ['capacity', 'initial_amount'],
+  [NodeType.SOURCE]: ['rate'],
+  [NodeType.CONVERTER]: ['input_amount', 'output_amount', 'cycle_time'],
+  [NodeType.DRAIN]: ['rate'],
+  [NodeType.GATE]: ['value'],
+  [NodeType.CHANCE]: ['success_chance'],
+  [NodeType.TIMER]: ['amount', 'interval'],
+  [NodeType.PLAYER_ACTION]: ['amount', 'cadence'],
+}
+
+const inputCls = 'bg-bg border border-border rounded px-2 py-1 text-white'
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+const yieldToUI = () => new Promise<void>((r) => setTimeout(r, 0))
 
 export function SimulationDashboard() {
   const [mode, setMode] = useState<DashMode>('run')
@@ -24,16 +45,28 @@ export function SimulationDashboard() {
     setScenario, setReportB, setCompareReport, setMCReport,
   } = useSimulationStore()
   const graph = useGraphStore((s) => s.graph)
+  const [modeError, setModeError] = useState<string | null>(null)
+
+  /** Graph validation before the PRO run modes (the basic run validates in useSimulation). */
+  function graphError(): string | null {
+    return hasErrors(validate(graph)) ? 'Graph contains errors. Fix them (see Issues in the Editor tab) before running.' : null
+  }
 
   // ---- A/B: spustit jako B ----
   const [runningB, setRunningB] = useState(false)
   const runAsB = async () => {
     if (runningB) return
+    const gErr = graphError()
+    if (gErr) { setModeError(gErr); return }
     setRunningB(true)
+    setModeError(null)
+    await yieldToUI()
     try {
       const r = runScenario(graph, scenario)
       setReportB(r)
       if (reportA) setCompareReport(compareReports(reportA, r))
+    } catch (err) {
+      setModeError(`A/B run failed: ${errorText(err)}`)
     } finally {
       setRunningB(false)
     }
@@ -44,11 +77,17 @@ export function SimulationDashboard() {
   const [runningMC, setRunningMC] = useState(false)
   const runMC = async () => {
     if (runningMC) return
+    const gErr = graphError()
+    if (gErr) { setModeError(gErr); return }
     setRunningMC(true)
-    await new Promise<void>((r) => setTimeout(r, 0))
+    setModeError(null)
+    await yieldToUI()
     try {
-      const report = runMonteCarlo(graph, { iterations: mcIter, seed_base: scenario.seed_override || 42, scenario })
-      setMCReport(report)
+      // Seed: override ze scénáře, jinak seed projektu (0 = každý běh náhodně).
+      const seedBase = scenario.seed_override > 0 ? scenario.seed_override : graph.simulation_seed > 0 ? graph.simulation_seed : 0
+      setMCReport(runMonteCarlo(graph, { iterations: mcIter, seed_base: seedBase, scenario }))
+    } catch (err) {
+      setModeError(`Monte Carlo failed: ${errorText(err)}`)
     } finally {
       setRunningMC(false)
     }
@@ -58,34 +97,32 @@ export function SimulationDashboard() {
   const [sweepTarget, setSweepTarget] = useState('')
   const [runningSweep, setRunningSweep] = useState(false)
   const [sweepReport, setSweepReport] = useState<ReturnType<typeof runSweep> | null>(null)
-  // Flexible sweep params
   const [sweepNodeId,  setSweepNodeId]  = useState('')
-  const [sweepField,   setSweepField]   = useState('rate')
+  const [sweepField,   setSweepField]   = useState('')
   const [sweepMin,     setSweepMin]     = useState(0.5)
   const [sweepMax,     setSweepMax]     = useState(10)
   const [sweepSteps,   setSweepSteps]   = useState(10)
   const [sweepMetric,  setSweepMetric]  = useState<'final_value'|'min_value'|'max_value'>('final_value')
 
-  // Numerická pole per typ uzlu
-  const SWEEP_FIELDS: Record<number, string[]> = {
-    0: ['capacity', 'initial_amount'],
-    1: ['rate'],
-    2: ['input_amount', 'output_amount', 'cycle_time'],
-    3: ['rate'],
-    4: ['value'],
-    5: ['success_chance'],
-  }
+  const sweepableNodes = graph.nodes.filter((n) => SWEEP_FIELDS[n.type])
   const selectedSweepNode = graph.nodes.find((n) => n.id === sweepNodeId)
-  const availableFields = selectedSweepNode ? (SWEEP_FIELDS[selectedSweepNode.type] ?? ['rate']) : ['rate']
+  const availableFields = selectedSweepNode ? SWEEP_FIELDS[selectedSweepNode.type] ?? [] : []
+  // Dřív zůstalo pole 'rate' i u uzlů, které ho nemají (select přitom ukazoval
+  // jiné pole) → sweep tiše měnil neexistující parametr a výsledky byly stejné.
+  const effectiveField = availableFields.includes(sweepField) ? sweepField : availableFields[0] ?? ''
 
   const runSweepAction = async () => {
-    if (!sweepTarget || !sweepNodeId || runningSweep) return
+    if (!sweepTarget || !sweepNodeId || !effectiveField || runningSweep) return
+    const gErr = graphError()
+    if (gErr) { setModeError(gErr); return }
     setRunningSweep(true)
-    await new Promise<void>((r) => setTimeout(r, 0))
+    setModeError(null)
+    await yieldToUI()
     try {
-      const params: SweepParam[] = [{ node_id: sweepNodeId, field: sweepField, min: sweepMin, max: sweepMax, steps: sweepSteps }]
-      const r = runSweep(graph, { params, scenario, target_pool: sweepTarget, target_metric: sweepMetric })
-      setSweepReport(r)
+      const params: SweepParam[] = [{ node_id: sweepNodeId, field: effectiveField, min: sweepMin, max: sweepMax, steps: sweepSteps }]
+      setSweepReport(runSweep(graph, { params, scenario, target_pool: sweepTarget, target_metric: sweepMetric }))
+    } catch (err) {
+      setModeError(`Parameter sweep failed: ${errorText(err)}`)
     } finally {
       setRunningSweep(false)
     }
@@ -105,7 +142,7 @@ export function SimulationDashboard() {
         {MODES.map((m) => (
           <button
             key={m.id}
-            onClick={() => { if (m.pro && !isPro) return; setMode(m.id) }}
+            onClick={() => { if (m.pro && !isPro) return; setMode(m.id); setModeError(null) }}
             title={m.pro && !isPro ? 'GSS PRO required' : undefined}
             className={`px-3 py-1.5 text-xs rounded transition-colors ${
               mode === m.id ? 'bg-accent text-white' :
@@ -121,44 +158,39 @@ export function SimulationDashboard() {
       {/* Scenario settings (sdílené) */}
       <div className="bg-card rounded-lg border border-border p-4">
         <h3 className="text-xs font-semibold text-white/70 uppercase mb-3">Scenario Configuration</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
           <label className="flex flex-col gap-1">
             <span className="text-muted">Name</span>
             <input
-              className="bg-bg border border-border rounded px-2 py-1 text-white"
+              className={inputCls}
               value={scenario.name}
               onChange={(e) => setScenario({ name: e.target.value })}
             />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-muted">Duration (s)</span>
-            <input
-              type="number" min={1} max={100000}
-              className="bg-bg border border-border rounded px-2 py-1 text-white"
-              value={scenario.duration}
-              onChange={(e) => setScenario({ duration: Number(e.target.value) })}
-            />
+            <NumericInput className={inputCls} value={scenario.duration} min={0.01} max={1000000}
+              onCommit={(v) => setScenario({ duration: v })} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-muted">dt</span>
-            <input
-              type="number" min={0.01} step={0.1}
-              className="bg-bg border border-border rounded px-2 py-1 text-white"
-              value={scenario.dt}
-              onChange={(e) => setScenario({ dt: Number(e.target.value) })}
-            />
+            <span className="text-muted">dt (s / tick)</span>
+            <NumericInput className={inputCls} value={scenario.dt} min={0.001} max={3600} step={0.1}
+              onCommit={(v) => setScenario({ dt: v })} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-muted">Seed (0 = random)</span>
-            <input
-              type="number" min={0}
-              className="bg-bg border border-border rounded px-2 py-1 text-white"
-              value={scenario.seed_override}
-              onChange={(e) => setScenario({ seed_override: Number(e.target.value) })}
-            />
+            <span className="text-muted">Sampling (s)</span>
+            <NumericInput className={inputCls} value={scenario.sampling_interval} min={0.001} max={1000000} step={0.5}
+              onCommit={(v) => setScenario({ sampling_interval: v })} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-muted" title="0 = use the project seed (random if that is 0 too)">Seed (0 = project)</span>
+            <NumericInput className={inputCls} value={scenario.seed_override} min={0} max={4294967295} integer
+              onCommit={(v) => setScenario({ seed_override: v })} />
           </label>
         </div>
       </div>
+
+      {modeError && <div className="text-red-400 text-xs">{modeError}</div>}
 
       {/* ---- MODE: Základní běh ---- */}
       {mode === 'run' && (
@@ -174,25 +206,17 @@ export function SimulationDashboard() {
             {error && <span className="text-red-400 text-xs">{error}</span>}
           </div>
 
-          {reportA && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <div className="bg-card rounded-lg border border-border p-4">
-                <h3 className="text-sm font-semibold mb-3 text-white/80">Wealth Over Time</h3>
-                <WealthOverTimeChart />
-              </div>
-              <div className="bg-card rounded-lg border border-border p-4">
-                <h3 className="text-sm font-semibold mb-3 text-white/80">Production Summary</h3>
-                <ProductionSummaryChart />
-              </div>
-              <RunSummaryTable report={reportA} label="Results A" />
-            </div>
-          )}
+          {/* Grafy průběhu jsou níže na stránce Analysis (dřív se zde zobrazovaly podruhé). */}
+          {reportA && <RunSummaryTable report={reportA} label="Results A" />}
         </div>
       )}
 
       {/* ---- MODE: A/B ---- */}
       {mode === 'ab' && (
         <div className="flex flex-col gap-4">
+          <p className="text-[10px] text-muted">
+            Run the current graph/scenario as A, change the graph or scenario, then run it as B to compare.
+          </p>
           <div className="flex gap-2 items-center">
             <button
               onClick={run}
@@ -204,7 +228,7 @@ export function SimulationDashboard() {
             <button
               onClick={runAsB}
               disabled={runningB || !reportA}
-              className="px-3 py-1.5 bg-secondary text-white rounded text-xs font-medium disabled:opacity-50"
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white rounded text-xs font-medium disabled:opacity-50"
             >
               {runningB ? '⏳…' : '▶ Run as B'}
             </button>
@@ -252,12 +276,8 @@ export function SimulationDashboard() {
           <div className="flex gap-3 items-center">
             <label className="flex items-center gap-2 text-xs text-muted">
               Iterations:
-              <input
-                type="number" min={10} max={10000} step={10}
-                className="w-20 bg-bg border border-border rounded px-2 py-1 text-white"
-                value={mcIter}
-                onChange={(e) => setMcIter(Number(e.target.value))}
-              />
+              <NumericInput className={`w-20 ${inputCls}`} value={mcIter} min={1} max={10000} step={10} integer
+                onCommit={setMcIter} />
             </label>
             <button
               onClick={runMC}
@@ -309,51 +329,50 @@ export function SimulationDashboard() {
       {/* ---- MODE: Parameter Sweep ---- */}
       {mode === 'sweep' && (
         <div className="flex flex-col gap-4">
-          {/* Konfigurace sweepovaného parametru */}
           <div className="bg-card rounded-lg border border-border p-4">
             <h3 className="text-xs font-semibold text-white/70 uppercase mb-3">Sweep Parameter</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Node</span>
-                <select className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepNodeId} onChange={(e) => { setSweepNodeId(e.target.value); setSweepField('rate') }}>
+                <select className={inputCls} value={sweepNodeId} onChange={(e) => { setSweepNodeId(e.target.value); setSweepField('') }}>
                   <option value="">– select –</option>
-                  {graph.nodes.filter((n) => n.type !== 0).map((n) => (
+                  {sweepableNodes.map((n) => (
                     <option key={n.id} value={n.id}>{n.label || n.id}</option>
                   ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Field</span>
-                <select className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepField} onChange={(e) => setSweepField(e.target.value)}>
+                <select className={inputCls} value={effectiveField} onChange={(e) => setSweepField(e.target.value)} disabled={availableFields.length === 0}>
                   {availableFields.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Target Pool (metric)</span>
-                <select className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepTarget} onChange={(e) => setSweepTarget(e.target.value)}>
+                <select className={inputCls} value={sweepTarget} onChange={(e) => setSweepTarget(e.target.value)}>
                   <option value="">– select –</option>
-                  {graph.nodes.filter((n) => n.type === 0).map((n) => (
+                  {graph.nodes.filter((n) => n.type === NodeType.POOL).map((n) => (
                     <option key={n.id} value={n.id}>{n.label || n.id}</option>
                   ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Min</span>
-                <input type="number" className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepMin} onChange={(e) => setSweepMin(Number(e.target.value))} />
+                <NumericInput className={inputCls} value={sweepMin} onCommit={setSweepMin} />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Max</span>
-                <input type="number" className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepMax} onChange={(e) => setSweepMax(Number(e.target.value))} />
+                <NumericInput className={inputCls} value={sweepMax} onCommit={setSweepMax} />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted">Steps</span>
-                <input type="number" min={2} max={50} className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepSteps} onChange={(e) => setSweepSteps(Number(e.target.value))} />
+                <NumericInput className={inputCls} value={sweepSteps} min={1} max={MAX_SWEEP_RUNS - 1} integer onCommit={setSweepSteps} />
               </label>
             </div>
             <div className="flex gap-3 items-center mt-3">
               <label className="flex items-center gap-2 text-xs text-muted">
                 Metric:
-                <select className="bg-bg border border-border rounded px-2 py-1 text-white" value={sweepMetric} onChange={(e) => setSweepMetric(e.target.value as 'final_value'|'min_value'|'max_value')}>
+                <select className={inputCls} value={sweepMetric} onChange={(e) => setSweepMetric(e.target.value as 'final_value'|'min_value'|'max_value')}>
                   <option value="final_value">Final value</option>
                   <option value="min_value">Min value</option>
                   <option value="max_value">Max value</option>
@@ -361,7 +380,7 @@ export function SimulationDashboard() {
               </label>
               <button
                 onClick={runSweepAction}
-                disabled={runningSweep || !sweepTarget || !sweepNodeId}
+                disabled={runningSweep || !sweepTarget || !sweepNodeId || !effectiveField}
                 className="px-3 py-1.5 bg-accent text-white rounded text-xs font-medium disabled:opacity-50"
               >
                 {runningSweep ? '⏳ Sweep running…' : '▶ Run Sweep'}
@@ -424,13 +443,7 @@ export function SimulationDashboard() {
 }
 
 // ---- Helper: Run Summary Table ----
-function RunSummaryTable({
-  report,
-  label,
-}: {
-  report: import('../../types/simulation').RunReport
-  label: string
-}) {
+function RunSummaryTable({ report, label }: { report: RunReport; label: string }) {
   const { final_values, min_values, max_values } = report.summary
   const pids = Object.keys(final_values)
   if (pids.length === 0) return null
@@ -452,14 +465,14 @@ function RunSummaryTable({
             <tr key={pid} className="border-b border-border/30">
               <td className="py-1 pr-3 text-white">{pid}</td>
               <td className="py-1 pr-3">{final_values[pid].toFixed(2)}</td>
-              <td className="py-1 pr-3">{min_values[pid].toFixed(2)}</td>
-              <td className="py-1">{max_values[pid].toFixed(2)}</td>
+              <td className="py-1 pr-3">{(min_values[pid] ?? 0).toFixed(2)}</td>
+              <td className="py-1">{(max_values[pid] ?? 0).toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="text-muted text-xs mt-2">
-        {report.summary.total_ticks} ticks · seed {report.seed_used} · {report.summary.elapsed.toFixed(1)}s
+        {report.summary.total_ticks} ticks · seed {report.seed_used} · {report.summary.elapsed.toFixed(1)} s simulated
       </div>
     </div>
   )

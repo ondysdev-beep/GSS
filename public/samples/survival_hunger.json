@@ -1,11 +1,15 @@
 {
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Survival Hunger",
+	"description": "Food consumption vs. foraging; HP drains through a starvation Gate once food < 10.",
 	"nodes": [
-		{"id": "forage", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "food", "rate": 3.0}},
-		{"id": "food_pool", "type": 0, "position": {"x": 250, "y": 150}, "data": {"resource": "food", "capacity": 100}},
-		{"id": "hunger_drain", "type": 3, "position": {"x": 450, "y": 150}, "data": {"resource": "food", "rate": 4.0}},
-		{"id": "starvation_gate", "type": 4, "position": {"x": 450, "y": 300}, "data": {"variable": "food", "operator": 2, "value": 10}},
-		{"id": "hp_pool", "type": 0, "position": {"x": 250, "y": 300}, "data": {"resource": "hp", "capacity": 100, "initial": 100}},
-		{"id": "hp_drain", "type": 3, "position": {"x": 650, "y": 300}, "data": {"resource": "hp", "rate": 2.0}}
+		{"id": "forage", "type": 1, "label": "Forage", "position": {"x": 50, "y": 150}, "data": {"resource": "food", "rate": 3}},
+		{"id": "food_pool", "type": 0, "label": "Food Pool", "position": {"x": 250, "y": 150}, "data": {"resource": "food", "capacity": 100, "initial_amount": 100}},
+		{"id": "hunger_drain", "type": 3, "label": "Hunger Drain", "position": {"x": 450, "y": 150}, "data": {"resource": "food", "rate": 4}},
+		{"id": "starvation_gate", "type": 4, "label": "Starvation Gate", "position": {"x": 450, "y": 300}, "data": {"variable": "food", "operator": 2, "value": 10}},
+		{"id": "hp_pool", "type": 0, "label": "HP Pool", "position": {"x": 250, "y": 300}, "data": {"resource": "hp", "capacity": 100, "initial_amount": 100}},
+		{"id": "hp_drain", "type": 3, "label": "HP Drain", "position": {"x": 650, "y": 300}, "data": {"resource": "hp", "rate": 2}}
 	],
 	"connections": [
 		{"from_node": "forage", "from_port": 0, "to_node": "food_pool", "to_port": 0},

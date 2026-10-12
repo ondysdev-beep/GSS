@@ -36,19 +36,19 @@
 
 ## Quality of Life Improvements
 
-### 10. Undo/Redo UI Indicators
-- Show current position in history stack
-- Keyboard shortcuts (Ctrl+Z/Ctrl+Y)
+### 10. Undo/Redo — ČÁSTEČNĚ HOTOVO
+- ✅ Tlačítka + zkratky Ctrl+Z / Ctrl+Y (Toolbar, Command Palette)
+- Chybí: zobrazení pozice v historii
 
-### 11. Graph Search & Filtering
-- Find nodes by name/type
-- Highlight paths between nodes
+### 11. Graph Search & Filtering — ČÁSTEČNĚ HOTOVO
+- ✅ Hledání uzlů podle názvu/typu/ID (Ctrl+F v editoru)
+- Chybí: zvýraznění cest mezi uzly
 
-### 12. Performance Mode
-- Disable heavy visualizations during long simulations
-- Background simulation with progress notification
+### 12. Performance Mode — ČÁSTEČNĚ HOTOVO
+- ✅ Vypnutí náročných vizualizací (Settings → Performance mode)
+- Chybí: simulace na pozadí (Web Worker) s notifikací o průběhu
 
-### 13. Template Wizard — ✅ HOTOVO (`TemplateWizardModal.tsx`, Toolbar → "+Template" → "🪄 Otevřít průvodce"). 2-krokový: výběr žánru/šablony + přejmenování hlavního resource + škálování ekonomiky.
+### 13. Template Wizard — ✅ HOTOVO (`TemplateWizardModal.tsx`, Toolbar → "+Template" → "🪄 Open wizard (customize)…"). 2-krokový: výběr žánru/šablony + přejmenování hlavního resource + škálování ekonomiky.
 
 ### 14. Export Improvements
 - PDF report generation — ✅ HOTOVO (`ExportPanel.tsx` → `buildPDFHtml`, print-to-PDF, PRO)
@@ -63,9 +63,9 @@
 
 ### 16. Code Splitting — ✅ HOTOVO (`App.tsx`, `React.lazy` pro AutoTuner/Intelligence/Charts/Library panely). Naměřeno: hlavní bundle 883 KB → 398 KB.
 
-### 17. Test Coverage
-- Unit tests for core simulation logic
-- E2E tests for critical workflows
+### 17. Test Coverage — ČÁSTEČNĚ HOTOVO
+- ✅ Unit testy simulačního jádra (`src/core/__tests__`)
+- Chybí: E2E testy kritických workflow
 
 ### 18. Error Reporting
 - Automatic crash reports

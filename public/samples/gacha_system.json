@@ -1,11 +1,15 @@
 {
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Gacha System",
+	"description": "One pull per second: 3% SSR, otherwise an 18% SR roll, otherwise R.",
 	"nodes": [
-		{"id": "pull_source", "type": 1, "position": {"x": 50, "y": 175}, "data": {"resource": "pull", "rate": 1.0}},
-		{"id": "ssr_roll", "type": 5, "position": {"x": 250, "y": 100}, "data": {"success_chance": 3}},
-		{"id": "sr_roll", "type": 5, "position": {"x": 250, "y": 300}, "data": {"success_chance": 18}},
-		{"id": "ssr_pool", "type": 0, "position": {"x": 500, "y": 50}, "data": {"resource": "SSR", "capacity": 100}},
-		{"id": "sr_pool", "type": 0, "position": {"x": 500, "y": 200}, "data": {"resource": "SR", "capacity": 500}},
-		{"id": "r_pool", "type": 0, "position": {"x": 500, "y": 350}, "data": {"resource": "R", "capacity": 1000}}
+		{"id": "pull_source", "type": 1, "label": "Pull Source", "position": {"x": 50, "y": 175}, "data": {"resource": "pull", "rate": 1}},
+		{"id": "ssr_roll", "type": 5, "label": "SSR Roll", "position": {"x": 250, "y": 100}, "data": {"success_chance": 3}},
+		{"id": "sr_roll", "type": 5, "label": "SR Roll", "position": {"x": 250, "y": 300}, "data": {"success_chance": 18}},
+		{"id": "ssr_pool", "type": 0, "label": "SSR Pool", "position": {"x": 500, "y": 50}, "data": {"resource": "pull", "capacity": 100}},
+		{"id": "sr_pool", "type": 0, "label": "SR Pool", "position": {"x": 500, "y": 200}, "data": {"resource": "pull", "capacity": 500}},
+		{"id": "r_pool", "type": 0, "label": "R Pool", "position": {"x": 500, "y": 350}, "data": {"resource": "pull", "capacity": 1000}}
 	],
 	"connections": [
 		{"from_node": "pull_source", "from_port": 0, "to_node": "ssr_roll", "to_port": 0},

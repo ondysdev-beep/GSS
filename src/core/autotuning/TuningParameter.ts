@@ -44,8 +44,12 @@ export function createParam(id = '', name = ''): TuningParameter {
 // ==================== OPERATIONS ====================
 
 export function setValue(p: TuningParameter, value: number): TuningParameter {
-  let v = Math.max(p.min_value, Math.min(p.max_value, value))
+  let v = value
+  // Nejdřív zaokrouhlit na krok, PAK oříznout do rozsahu — v opačném pořadí
+  // mohlo zaokrouhlení výsledek vytlačit pod min/nad max (např. min 0.01,
+  // krok 1 → 0).
   if (p.step_size > 0) v = Math.round(v / p.step_size) * p.step_size
+  v = Math.max(p.min_value, Math.min(p.max_value, v))
   return { ...p, current_value: v }
 }
 
@@ -59,10 +63,14 @@ export function setNormalized(p: TuningParameter, norm: number): TuningParameter
 }
 
 function getSuggestedStep(p: TuningParameter): number {
+  // Relativní krok u hodnoty 0 by byl 0 a parametr by se už nikdy nepohnul —
+  // proto aspoň step_size (nebo 1 % rozsahu, je-li step_size 0).
+  const range = Number.isFinite(p.max_value - p.min_value) ? p.max_value - p.min_value : 1
+  const floor = p.step_size > 0 ? p.step_size : Math.max(range * 0.01, 1e-6)
   switch (p.scale_type) {
-    case 'LOGARITHMIC':  return p.current_value * 0.1
-    case 'EXPONENTIAL':  return p.current_value * 0.05
-    default:             return p.step_size
+    case 'LOGARITHMIC':  return Math.max(Math.abs(p.current_value) * 0.1, floor)
+    case 'EXPONENTIAL':  return Math.max(Math.abs(p.current_value) * 0.05, floor)
+    default:             return floor
   }
 }
 
@@ -96,7 +104,8 @@ export function fromProducer(producer: ProducerDef): TuningParameter[] {
     parameter_type: 'PRODUCER_RATE', scale_type: 'LINEAR',
     target_id: pid, target_property: 'rate',
     current_value: rate, original_value: rate,
-    min_value: 0.01, max_value: rate * 100, step_size: rate * 0.1, sensitivity: 0.8,
+    // rate 0 dřív dal max_value 0 < min_value 0.01 a step 0 (parametr zamrzl)
+    min_value: 0.01, max_value: Math.max(rate * 100, 1), step_size: rate > 0 ? rate * 0.1 : 0.01, sensitivity: 0.8,
   })
 
   const cost = producer.cost ?? 10

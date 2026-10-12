@@ -1,6 +1,6 @@
 {
   "name": "gss",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,14 +18,14 @@
     "build:web:free": "tsc && cross-env VITE_PLATFORM=web VITE_EDITION=free vite build --outDir dist-web/free --base /",
     "build:web:pro": "tsc && cross-env VITE_PLATFORM=web VITE_EDITION=pro vite build --outDir dist-web/pro --base /pro/",
     "build:web": "npm run build:web:free && npm run build:web:pro",
-    "build:web:site": "npm run build:web && node scripts/combine-web-builds.cjs"
+    "build:web:site": "npm run build:web && node scripts/combine-web-builds.cjs",
+    "icons": "tauri icon app-icon-source.png"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-fs": "^2.0.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.10.1",
@@ -39,6 +39,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tauri-apps/cli": "^2.0.0",
     "@testing-library/jest-dom": "^6.4.6",
     "@testing-library/react": "^16.0.0",

@@ -1,25 +1,35 @@
 #!/usr/bin/env node
-// scripts/check-version.cjs — fails if package.json and
-// src-tauri/tauri.conf.json disagree on version (audit R-09).
+// scripts/check-version.cjs — fails if the app version differs between
+// package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml and
+// version.json (audit R-09). Runs in CI (`validate` job).
 //
 // package.json is the intended single source of truth for the app
-// version (see src/core/version.ts). tauri.conf.json needs its own copy
-// for the OS-level installer metadata, so this script is a consistency
-// gate rather than a way to remove the duplication entirely.
+// version (see src/core/version.ts). The other files need their own copy
+// (OS-level installer metadata, Rust crate, update manifest), so this
+// script is a consistency gate rather than a way to remove the duplication.
 
 const fs = require('fs')
 const path = require('path')
 
 const root = path.resolve(__dirname, '..')
-const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-const tauriConf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'))
+const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8')
 
-if (pkg.version !== tauriConf.version) {
-  console.error(
-    `Version mismatch: package.json is "${pkg.version}" but ` +
-    `src-tauri/tauri.conf.json is "${tauriConf.version}". ` +
-    `Update both to the same value before releasing.`
-  )
+const pkg = JSON.parse(read('package.json'))
+const tauriConf = JSON.parse(read('src-tauri', 'tauri.conf.json'))
+const cargoMatch = read('src-tauri', 'Cargo.toml').match(/^\s*version\s*=\s*"([^"]+)"/m)
+const manifest = JSON.parse(read('version.json'))
+
+const versions = {
+  'package.json': pkg.version,
+  'src-tauri/tauri.conf.json': tauriConf.version,
+  'src-tauri/Cargo.toml': cargoMatch ? cargoMatch[1] : '(not found)',
+  'version.json': manifest.version,
+}
+
+const mismatched = Object.entries(versions).filter(([, v]) => v !== pkg.version)
+if (mismatched.length > 0) {
+  console.error('Version mismatch — update all files to the same value before releasing:')
+  for (const [file, v] of Object.entries(versions)) console.error(`  ${file}: "${v}"`)
   process.exit(1)
 }
 

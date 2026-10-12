@@ -1,4 +1,4 @@
-// PowerBalanceChart (PRO) — Radar chart of pool fill % at final tick
+// PowerBalanceChart (PRO) — Radar chart of final pool amounts relative to the largest pool (100 %)
 
 import {
   RadarChart,
@@ -50,7 +50,7 @@ export function PowerBalanceChart() {
         />
         <Tooltip
           contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3a', fontSize: 11 }}
-          formatter={(v: number) => [`${v}%`, 'Fill']}
+          formatter={(v: number) => [`${v}%`, 'of largest pool']}
         />
         <Radar
           dataKey="fill_pct"

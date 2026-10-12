@@ -8,28 +8,28 @@ export function stringify(value: unknown, indent = '\t'): string {
 
 type AnyObj = Record<string, unknown>
 
-/** Speciální variantra pro GSSGraph — seřadí nodes, connections, scenarios, personas */
+/** Stable string comparator (returns 0 for equal keys, unlike `a < b ? -1 : 1`). */
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+/**
+ * Speciální varianta pro GSSGraph — seřadí scenarios a personas podle jména.
+ *
+ * `nodes` a `connections` se ZÁMĚRNĚ neřadí: TickEngine zpracovává uzly a
+ * spojení v pořadí pole (např. který ze dvou drainů odebere z poolu dřív),
+ * takže přeřazení by změnilo výsledek simulace po uložení a načtení.
+ */
 export function stringifyGraph(graph: unknown): string {
   const gd = JSON.parse(JSON.stringify(graph)) as AnyObj
 
-  if (Array.isArray(gd['nodes'])) {
-    gd['nodes'] = (gd['nodes'] as AnyObj[]).slice().sort((a, b) =>
-      String(a['id'] ?? '') < String(b['id'] ?? '') ? -1 : 1)
-  }
-  if (Array.isArray(gd['connections'])) {
-    gd['connections'] = (gd['connections'] as AnyObj[]).slice().sort((a, b) => {
-      const ka = `${a['from_node']}:${a['from_port']}:${a['to_node']}:${a['to_port']}`
-      const kb = `${b['from_node']}:${b['from_port']}:${b['to_node']}:${b['to_port']}`
-      return ka < kb ? -1 : 1
-    })
-  }
   if (Array.isArray(gd['scenarios'])) {
     gd['scenarios'] = (gd['scenarios'] as AnyObj[]).slice().sort((a, b) =>
-      String(a['name'] ?? '') < String(b['name'] ?? '') ? -1 : 1)
+      compareStrings(String(a['name'] ?? ''), String(b['name'] ?? '')))
   }
   if (Array.isArray(gd['personas'])) {
     gd['personas'] = (gd['personas'] as AnyObj[]).slice().sort((a, b) =>
-      String(a['name'] ?? '') < String(b['name'] ?? '') ? -1 : 1)
+      compareStrings(String(a['name'] ?? ''), String(b['name'] ?? '')))
   }
 
   return stringify(gd)
@@ -38,7 +38,7 @@ export function stringifyGraph(graph: unknown): string {
 // ==================== INTERNÍ SERIALIZACE ====================
 
 function serialize(value: unknown, indent: string, depth: number): string {
-  if (value === null || value === undefined) return 'null'
+  if (value === null || value === undefined || typeof value === 'function' || typeof value === 'symbol') return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') return formatNumber(value)
   if (typeof value === 'string') return escapeString(value)
@@ -48,13 +48,12 @@ function serialize(value: unknown, indent: string, depth: number): string {
 }
 
 function formatNumber(v: number): string {
-  if (!isFinite(v)) return v > 0 ? '1e308' : '-1e308'
-  if (isNaN(v)) return '0'
-  // Čísla bez zbytečných nul (max 6 des. míst)
-  if (Number.isInteger(v)) return String(v)
-  let s = v.toFixed(6)
-  while (s.endsWith('0') && !s.endsWith('.0')) s = s.slice(0, -1)
-  return s
+  // NaN se musí řešit PŘED isFinite (isFinite(NaN) je false → dřív končil jako -1e308).
+  if (Number.isNaN(v)) return '0'
+  if (!Number.isFinite(v)) return v > 0 ? '1e308' : '-1e308'
+  // Nejkratší zápis, který se přesně načte zpět (dřív toFixed(6) ořezal
+  // malé hodnoty jako 0.0000005 na 0 — ztráta dat při uložení).
+  return String(v)
 }
 
 function escapeString(s: string): string {

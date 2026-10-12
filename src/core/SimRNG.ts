@@ -3,10 +3,13 @@
 // Produces identical sequences for the same seed across all runs.
 //
 // Usage:
-//   SimRNG.setSeed(12345)               // before each run
-//   const roll = SimRNG.randf()         // instead of Math.random()
-//   SimRNG.setSeedForRun(base, index)   // Monte Carlo
-//   const rng = createRNG(42)           // isolated instance for pipelines
+//   const rng = createRNG(42)           // isolated instance — the ONLY way the
+//                                       // simulation pipeline uses randomness
+//   SimRNG.generateSeed()               // fresh random seed (seed 0 = "random")
+//
+// The global `SimRNG.setSeed()/randf()` singleton is kept only for backward
+// compatibility of the public SDK; simulation code must not use it (shared
+// state made concurrent runs non-deterministic — DEVLOG fix 1.5 / audit R-06).
 
 // ==================== RNG INSTANCE (self-contained, no shared state) ====================
 

@@ -33,8 +33,8 @@ const MINIMAL_GRAPH: GSSGraph = {
 }
 
 describe('TickEngine', () => {
-  it('TICK_SPEC_VERSION is 1', () => {
-    expect(TICK_SPEC_VERSION).toBe(1)
+  it('TICK_SPEC_VERSION is 2 (gate relay semantics)', () => {
+    expect(TICK_SPEC_VERSION).toBe(2)
   })
 
   it('initState creates empty pool with correct capacity', () => {

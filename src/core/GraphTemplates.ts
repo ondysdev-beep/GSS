@@ -15,11 +15,11 @@ export interface TemplateMeta {
 }
 
 export const TEMPLATE_LIST: TemplateMeta[] = [
-  { id: 'idle_tycoon',     name: '💰 Idle Tycoon',     description: 'Basic idle game with gold production and upgrades',  category: 'Economy',  primaryResource: 'gold'   },
+  { id: 'idle_tycoon',     name: '💰 Idle Tycoon',     description: 'Basic idle game: a gold mine fills storage, a shop spends it', category: 'Economy',  primaryResource: 'gold'   },
   { id: 'rpg_loot',        name: '⚔️ RPG Loot System', description: 'Loot drops with rarity chances',                    category: 'RPG',       primaryResource: 'loot'   },
   { id: 'resource_chain',  name: '🏭 Resource Chain',  description: 'Wood → Planks → Furniture production',               category: 'Strategy',  primaryResource: 'wood'   },
-  { id: 'energy_system',   name: '⚡ Energy System',   description: 'Regenerating energy with actions',                   category: 'Mobile',    primaryResource: 'energy' },
-  { id: 'gacha_pull',      name: '🎲 Gacha System',    description: 'Gacha pulls with rarity tiers',                      category: 'Mobile',    primaryResource: 'gems'   },
+  { id: 'energy_system',   name: '⚡ Energy System',   description: 'Regenerating energy; actions only run while energy ≥ 10', category: 'Mobile',    primaryResource: 'energy' },
+  { id: 'gacha_pull',      name: '🎲 Gacha System',    description: 'Gems are spent on pulls (100 gems each) with SSR/SR/R rarity tiers', category: 'Mobile',    primaryResource: 'gems'   },
 ]
 
 function baseGraph(name: string, partial: Pick<GSSGraph, 'nodes' | 'connections'>): GSSGraph {
@@ -57,8 +57,10 @@ function templateRpgLoot(): GSSGraph {
     nodes: [
       { id: 'monster_drop',  type: 1, label: 'Monster Drop',  position: { x: 50,  y: 150 }, data: { resource: 'loot', rate: 0.5 } },
       { id: 'rarity_roll',   type: 5, label: 'Rarity Roll',   position: { x: 250, y: 150 }, data: { success_chance: 20 } },
-      { id: 'rare_items',    type: 0, label: 'Rare Items',    position: { x: 500, y:  50 }, data: { resource: 'rare',   capacity: 100 } },
-      { id: 'common_items',  type: 0, label: 'Common Items',  position: { x: 500, y: 250 }, data: { resource: 'common', capacity: 500 } },
+      // Pooly musí mít STEJNÝ resource jako zdroj ('loot') — dřív 'rare'/'common',
+      // takže do nich nic nikdy nedorazilo.
+      { id: 'rare_items',    type: 0, label: 'Rare Items',    position: { x: 500, y:  50 }, data: { resource: 'loot', capacity: 100 } },
+      { id: 'common_items',  type: 0, label: 'Common Items',  position: { x: 500, y: 250 }, data: { resource: 'loot', capacity: 500 } },
     ],
     connections: [
       { from_node: 'monster_drop', from_port: 0, to_node: 'rarity_roll',  to_port: 0 },
@@ -91,8 +93,8 @@ function templateResourceChain(): GSSGraph {
 function templateEnergySystem(): GSSGraph {
   return baseGraph('Energy System', {
     nodes: [
-      { id: 'energy_regen', type: 1, label: 'Energy Regen', position: { x:  50, y: 100 }, data: { resource: 'energy', rate: 0.1 } },
-      { id: 'energy_pool',  type: 0, label: 'Energy Pool',  position: { x: 250, y: 100 }, data: { resource: 'energy', capacity: 100 } },
+      { id: 'energy_regen', type: 1, label: 'Energy Regen', position: { x:  50, y: 100 }, data: { resource: 'energy', rate: 1.0 } },
+      { id: 'energy_pool',  type: 0, label: 'Energy Pool',  position: { x: 250, y: 100 }, data: { resource: 'energy', capacity: 100, initial_amount: 100 } },
       { id: 'action_gate',  type: 4, label: 'Action Gate',  position: { x: 450, y: 100 }, data: { variable: 'energy', operator: 1, value: 10 } },
       { id: 'action_cost',  type: 3, label: 'Action Cost',  position: { x: 650, y: 100 }, data: { resource: 'energy', rate: 10.0 } },
     ],
@@ -107,17 +109,22 @@ function templateEnergySystem(): GSSGraph {
 function templateGachaPull(): GSSGraph {
   return baseGraph('Gacha System', {
     nodes: [
-      { id: 'gems_source', type: 1, label: 'Gems Source', position: { x:  50, y: 150 }, data: { resource: 'gems', rate: 0.0 } },
+      // Dřív: zdroj s rate 0 nezapojený nikam a pooly s jiným resource než
+      // tok → nic nikdy nedorazilo. Teď: gemy → Converter (100 gemů = 1 pull)
+      // → SSR roll → (neúspěch) SR roll → pooly počítající pully ('pull').
+      { id: 'gems_source', type: 1, label: 'Gems Income', position: { x:  50, y: 150 }, data: { resource: 'gems', rate: 50 } },
       { id: 'gems_pool',   type: 0, label: 'Gems Pool',   position: { x: 200, y: 150 }, data: { resource: 'gems', capacity: 10000 } },
-      { id: 'pull_gate',   type: 4, label: 'Pull Gate',   position: { x: 350, y: 150 }, data: { variable: 'gems', operator: 1, value: 100 } },
+      { id: 'pull',        type: 2, label: 'Pull',        position: { x: 350, y: 150 }, data: { input_resource: 'gems', input_amount: 100, output_resource: 'pull', output_amount: 1, cycle_time: 1 } },
       { id: 'ssr_chance',  type: 5, label: 'SSR Chance',  position: { x: 500, y: 100 }, data: { success_chance:  3 } },
       { id: 'sr_chance',   type: 5, label: 'SR Chance',   position: { x: 500, y: 250 }, data: { success_chance: 15 } },
-      { id: 'ssr_pool',    type: 0, label: 'SSR Pool',    position: { x: 700, y:  50 }, data: { resource: 'SSR', capacity: 100  } },
-      { id: 'sr_pool',     type: 0, label: 'SR Pool',     position: { x: 700, y: 150 }, data: { resource: 'SR',  capacity: 500  } },
-      { id: 'r_pool',      type: 0, label: 'R Pool',      position: { x: 700, y: 300 }, data: { resource: 'R',   capacity: 1000 } },
+      { id: 'ssr_pool',    type: 0, label: 'SSR Pulls',   position: { x: 700, y:  50 }, data: { resource: 'pull', capacity: 100  } },
+      { id: 'sr_pool',     type: 0, label: 'SR Pulls',    position: { x: 700, y: 150 }, data: { resource: 'pull', capacity: 500  } },
+      { id: 'r_pool',      type: 0, label: 'R Pulls',     position: { x: 700, y: 300 }, data: { resource: 'pull', capacity: 1000 } },
     ],
     connections: [
-      { from_node: 'pull_gate',  from_port: 0, to_node: 'ssr_chance', to_port: 0 },
+      { from_node: 'gems_source', from_port: 0, to_node: 'gems_pool',  to_port: 0 },
+      { from_node: 'gems_pool',   from_port: 0, to_node: 'pull',       to_port: 0 },
+      { from_node: 'pull',        from_port: 0, to_node: 'ssr_chance', to_port: 0 },
       { from_node: 'ssr_chance', from_port: 0, to_node: 'ssr_pool',   to_port: 0 },
       { from_node: 'ssr_chance', from_port: 1, to_node: 'sr_chance',  to_port: 0 },
       { from_node: 'sr_chance',  from_port: 0, to_node: 'sr_pool',    to_port: 0 },

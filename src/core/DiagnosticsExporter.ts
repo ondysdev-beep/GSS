@@ -2,11 +2,14 @@
 // Exportuje diagnostický bundle pro bug reporty / sdílení.
 
 import { TICK_SPEC_VERSION } from './TickEngine'
+import { APP_VERSION } from './version'
+import { GSS_FORMAT_VERSION } from '../types/graph'
 import type { GSSGraph } from '../types/graph'
 import type { RunReport, ValidationIssue } from '../types/simulation'
 
 export interface DiagnosticsBundle {
-  gss_version: string
+  gss_version: string          // app version (package.json)
+  format_version: string       // .gss file format version
   tick_spec_version: number
   export_time: string
   system: SystemInfo
@@ -41,7 +44,8 @@ export function buildDiagnosticsBundle(
   extra: Record<string, unknown> = {},
 ): DiagnosticsBundle {
   return {
-    gss_version: '3.0',
+    gss_version: APP_VERSION,
+    format_version: GSS_FORMAT_VERSION,
     tick_spec_version: TICK_SPEC_VERSION,
     export_time: new Date().toISOString(),
     system: getSystemInfo(),

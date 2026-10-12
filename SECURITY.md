@@ -116,12 +116,15 @@ connect-src 'self' https: ipc: http://ipc.localhost
   any inline SVG/base64 rendering from chart libraries.
 - `connect-src 'self' https: ipc: http://ipc.localhost` — `ipc:` /
   `http://ipc.localhost` is required for Tauri's `invoke()` calls to reach
-  Rust commands. The `https:` allowance is needed because
-  `UpdateChecker.ts` fetches an **admin-configured** manifest URL
-  (`VITE_VERSION_MANIFEST_URL`) whose exact host isn't fixed at build time.
-  This is the one deliberately broad rule in this policy — it was not
-  possible to narrow it further without hardcoding a specific host, which
-  would break if the manifest URL is ever moved to a different service.
+  Rust commands. The `https:` allowance is needed because the WebView
+  itself fetches from hosts that aren't fixed at build time: the Community
+  Library index (raw.githubusercontent.com) and **"Import from URL"**, which
+  accepts any https URL the user pastes (GitHub raw, Gist, own hosting).
+  This is the one deliberately broad rule in this policy. (Desktop auto-update
+  checks run in Rust via the Tauri updater plugin and are not affected by CSP.)
+  Imported graphs are treated as untrusted data: they are normalized and
+  validated before loading, and every place that renders them into HTML
+  (PDF report, Web Share export) escapes names and labels.
 
 This was checked against `npm run build` (production build succeeds) but
 **was not verified at runtime inside an actual Tauri window**, since this
@@ -166,12 +169,37 @@ secret. Old installs won't be able to verify new updates signed with a
 different key until they're manually reinstalled once — this is expected,
 not a bug, and is exactly the protection the signature exists to provide.
 
-**Not verified:** the actual CI signing + `latest-free.json`/
-`latest-pro.json` manifest generation (`tauri-action`'s
-`createUpdaterArtifacts` handling) was implemented according to Tauri v2's
-documented behavior but **could not be run end-to-end** in this
-environment (no Cargo/GitHub Actions execution available here). Please
-verify on the first real tagged release that both manifest files appear
-as release assets and that a FREE/PRO install of the previous version
-actually detects and installs the new one.
+**Per-edition manifests:** tauri-action signs the bundles but its own
+single `latest.json` is disabled (`uploadUpdaterJson: false`) — FREE and
+PRO upload to the same release, so one shared manifest would let a PRO
+install "update" to the FREE build and vice versa. The `updater-manifests`
+CI job runs `scripts/generate-updater-manifests.cjs` after all builds and
+uploads `latest-free.json` (assets named `GSS_…`) and `latest-pro.json`
+(`GSS-PRO_…`), which are the endpoints configured in `tauri.conf.json` and
+the PRO build's `--config` override.
+
+**Not verified end-to-end:** this could not be run in a real GitHub Actions
+release from the development environment. On the first tagged release,
+check that both manifest files appear as release assets (the job fails
+loudly if no signed bundles are found) and that a FREE/PRO install of the
+previous version detects and installs the new one.
+
+## Anthropic API key (AI Generator)
+
+- **Desktop:** stored by the Rust side in the app's store file (`gss.bin`,
+  tauri-plugin-store, in the app data directory). It is plain JSON — **not
+  encrypted** — so anyone with access to the user's OS account can read it.
+  The WebView never reads the value back; requests to api.anthropic.com are
+  made from Rust.
+- **Web:** the AI Generator is not available (Anthropic's API has no CORS
+  for browser calls), so the web build does not store a key at all; a key
+  saved by an older web build is removed when the user clicks "Remove key".
+
+## Web edition gating
+
+The web build is deployed as FREE at `/` and PRO at `/pro/` on the same
+site (see WEB_DEPLOY.md). Both are public static files: whoever can reach
+the site can open `/pro/`. If PRO must be paid-only on the web, the `/pro/`
+path needs access control at the hosting level (e.g. Cloudflare Access) —
+the app itself cannot enforce it.
 

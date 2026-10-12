@@ -1,12 +1,16 @@
-// UpdateChecker.ts — checks for updates against a remote version manifest.
-// Configurable via VITE_VERSION_MANIFEST_URL environment variable.
+// UpdateChecker.ts — app-wide constants (version, store/repo links) plus a
+// manifest-based update check (VITE_VERSION_MANIFEST_URL).
+//
+// The desktop app no longer calls checkForUpdates(): real updates go through
+// the Tauri updater (platform.checkForAppUpdate, see UpdateBanner.tsx). The
+// function is kept for builds that set VITE_VERSION_MANIFEST_URL explicitly.
 
 import { Logger } from './Logger'
 import { APP_VERSION as _APP_VERSION } from './version'
 
 export const APP_VERSION = _APP_VERSION
 export const ITCH_URL = 'https://neopryus.itch.io/idle-economy-simulator'
-export const GITHUB_URL = 'https://github.com/neopryus/GSS'
+export const GITHUB_URL = 'https://github.com/ondysdev-beep/GSS'
 
 const _env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
 const VERSION_MANIFEST_URL: string | undefined = _env?.VITE_VERSION_MANIFEST_URL || undefined
@@ -26,8 +30,11 @@ export interface UpdateCheckResult {
 
 /** Semver porovnání: vrátí true pokud remote > local */
 export function isNewer(remote: string, local: string): boolean {
-  const rParts = remote.split('.').map(Number)
-  const lParts = local.split('.').map(Number)
+  // Pre-release/build suffixy ("3.4.0-beta.1", "v3.4.0") dřív daly NaN a
+  // porovnání vždy vrátilo false. Porovnává se jen číselné jádro x.y.z.
+  const core = (v: string) => v.trim().replace(/^v/i, '').split(/[-+]/)[0].split('.').map((p) => parseInt(p, 10) || 0)
+  const rParts = core(remote)
+  const lParts = core(local)
   const len = Math.max(rParts.length, lParts.length)
   for (let i = 0; i < len; i++) {
     const r = rParts[i] ?? 0

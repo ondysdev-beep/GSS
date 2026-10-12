@@ -2,9 +2,8 @@
 // scripts/combine-web-builds.cjs — Fáze 6 webové verze.
 //
 // Cloudflare Pages/Vercel/GitHub Pages nasazují VŽDY jednu složku jako
-// kořen webu. Aby FREE a PRO běžely na stejné doméně (nutné kvůli
-// sdílenému localStorage pro AI klíč — viz platform/web.ts), musí být
-// oba buildy sloučené do jedné struktury:
+// kořen webu. Aby FREE a PRO běžely v jednom nasazení (FREE v kořeni, PRO
+// v podcestě /pro), musí být oba buildy sloučené do jedné struktury:
 //
 //   dist-web-site/
 //     index.html, assets/...     ← FREE (kořen domény)

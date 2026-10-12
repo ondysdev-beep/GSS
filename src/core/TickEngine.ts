@@ -1,8 +1,7 @@
 // TickEngine.ts — Canonical simulation tick engine
 // Pure functions — no side effects, no DOM references.
 // Tick order (identical to GDScript original, extended with 3 new steps
-// that are no-ops for graphs without these node types — fully backward
-// compatible, no behavior change for existing graphs):
+// that are no-ops for graphs without these node types):
 //   1. Timers        → exact-interval pulses into connected targets
 //   2. Sources       → produce resources, distribute to connected targets
 //   3. Converters    → consume inputs, produce outputs
@@ -11,10 +10,18 @@
 //   6. Drains        → consume from connected pools
 //   7. Gates         → evaluate condition, update open/closed state
 //   8. Chance nodes  → tracking only (routing happens inline in distribute)
+//
+// Tick spec v2 (vs. v1): Gates relay flow (v1 silently dropped anything sent
+// into a Gate, so Gates had no effect at all), consumers can pull from pools
+// through an open Gate, Chance nodes can route into any node type (not only
+// pools), routing loops are cut after MAX_ROUTE_DEPTH hops instead of
+// overflowing the stack, pools never lose resources on inflow when they are
+// over capacity, and converter input buffers only accept the configured input
+// resource and hold at most one tick's worth of input.
 
 import type { RNGInstance } from './SimRNG'
 import { NodeType } from '../types/graph'
-import type { GSSGraph, GSSConnection } from '../types/graph'
+import type { GSSGraph, GSSConnection, GSSNode } from '../types/graph'
 import type {
   SimState,
   PoolState,
@@ -25,11 +32,16 @@ import type {
 } from '../types/simulation'
 import { evaluateFormula } from './FormulaEvaluator'
 
-export const TICK_SPEC_VERSION = 1 as const
+export const TICK_SPEC_VERSION = 2 as const
 
 // Bezpečnostní pojistka proti degenerovaným kombinacím dt/interval u Timer
-// uzlu (oprava B2) — viz komentář u Step 1 níže pro důvod.
+// a Player Action uzlů (oprava B2) — viz komentář u Step 1 níže.
 const MAX_TIMER_PULSES_PER_TICK = 10_000
+
+// Pojistka proti nekonečné rekurzi ve smyčkách mezi routovacími uzly
+// (Gate → Gate, Splitter → Splitter, Chance → Chance …). Tok, který by šel
+// hlouběji, se zahodí — validátor takové smyčky hlásí jako WARNING.
+export const MAX_ROUTE_DEPTH = 64
 
 export function getTickSpecDescription(): Array<{ step: number; name: string; detail: string }> {
   return [
@@ -49,25 +61,25 @@ export function getTickSpecDescription(): Array<{ step: number; name: string; de
       step: 3,
       name: 'Converters',
       detail:
-        'Each Converter consumes from its input buffer and connected input pools, then produces output at the configured ratio and distributes downstream.',
+        'Each Converter consumes from its input buffer and connected input pools (also through open Gates), then produces output at the configured ratio and distributes downstream.',
     },
     {
       step: 4,
       name: 'Formula nodes',
       detail:
-        'Each Formula node evaluates its expression (variables: resource totals + `tick`) and distributes the result — clamped to ≥0 — as `output_resource`.',
+        'Each Formula node evaluates its expression (variables: resource totals + `tick`) as a per-second rate, multiplies it by dt and distributes the result — clamped to ≥0 — as `output_resource`.',
     },
     {
       step: 5,
       name: 'Player Actions',
       detail:
-        'Each Player Action node fires stochastically with per-tick probability dt/cadence (seeded RNG), simulating a player triggering it roughly every `cadence` seconds on average.',
+        'Each Player Action node fires on average dt/cadence times per tick (whole part guaranteed, remainder as a seeded-RNG probability), simulating a player triggering it roughly every `cadence` seconds.',
     },
     {
       step: 6,
       name: 'Drains',
       detail:
-        'Each Drain consumes resources from connected input pools at its rate × dt. Pools cannot go below zero.',
+        'Each Drain consumes resources from connected input pools (also through open Gates) at its rate × dt. Pools cannot go below zero.',
     },
     {
       step: 7,
@@ -87,12 +99,40 @@ export function getTickSpecDescription(): Array<{ step: number; name: string; de
 export function getSemanticsNotes(): string[] {
   return [
     'Fan-out: By default, flow is DUPLICATED to every output connection. Use a Splitter node for proportional division (equal or weighted).',
-    'Cycles: Graphs may contain cycles. Feedback loops are allowed but flagged as INFO by GraphValidator.',
+    'Gates: an open Gate relays any flow sent into it to all of its outputs; a closed Gate blocks it. Drains and Converters can also pull from pools through an open Gate.',
+    'Gate variable: the Gate compares the TOTAL of a resource (by resource name, summed over all pools), not a single pool.',
+    'Chance: a successful roll routes the flow to output port 0, a failed roll to output port 1.',
+    'Cycles: Graphs may contain cycles. Feedback loops are allowed but flagged by GraphValidator; loops made only of routing nodes (Gate/Splitter/Chance) are cut after 64 hops.',
     'Determinism: All randomness uses SimRNG (seeded). Identical seed + graph + scenario = identical results.',
     'Gate evaluation: Gates read pool totals AFTER drains have consumed, so gates reflect end-of-tick state.',
-    'Splitter: Divides incoming flow across N outputs. Equal mode = flow/N. Weighted mode = proportional to comma-separated weights.',
+    'Splitter: Divides incoming flow across its connected outputs (ordered by output port). Equal mode = flow/N. Weighted mode = proportional to comma-separated weights.',
+    'Converter: only accepts its configured input resource, and its input buffer holds at most one tick (or one cycle) of input — any surplus pushed into it is discarded.',
     'Capacity: Pools have a max capacity. Overflow is silently discarded.',
   ]
+}
+
+// ==================== Defensive data access ====================
+
+type DataRecord = Record<string, unknown>
+
+/** Node data as a plain record — never undefined, even for malformed/imported nodes. */
+function nodeData(node: GSSNode): DataRecord {
+  const data = node.data as unknown
+  return data && typeof data === 'object' ? (data as DataRecord) : {}
+}
+
+/** A finite number, or the fallback (also for strings/NaN/undefined from untrusted JSON). */
+function num(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+}
+
+function str(v: unknown, fallback = ''): string {
+  return typeof v === 'string' ? v : fallback
+}
+
+function portOf(conn: GSSConnection): number {
+  const p = Number(conn.from_port)
+  return Number.isFinite(p) ? p : 0
 }
 
 // ==================== State initialization ====================
@@ -107,16 +147,19 @@ export function initState(graph: GSSGraph): SimState {
 
   for (const node of graph.nodes) {
     const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
+    const data = nodeData(node)
 
     switch (node.type) {
-      case NodeType.POOL:
+      case NodeType.POOL: {
+        const capacity = num(data.capacity, 100)
         pools[nid] = {
-          resource: (data.resource as string) ?? '',
-          amount: (data.initial_amount as number) ?? 0,
-          capacity: (data.capacity as number) ?? 100,
+          resource: str(data.resource),
+          // Pool nikdy nezačíná nad kapacitou ani pod nulou.
+          amount: Math.min(Math.max(0, num(data.initial_amount, 0)), Math.max(0, capacity)),
+          capacity,
         }
         break
+      }
       case NodeType.CONVERTER:
         converter_buffers[nid] = { input_buffer: 0 }
         break
@@ -127,14 +170,14 @@ export function initState(graph: GSSGraph): SimState {
         chance_rolls[nid] = {
           successes: 0,
           total: 0,
-          success_chance: (data.success_chance as number) ?? 50,
+          success_chance: num(data.success_chance, 50),
         }
         break
       case NodeType.SPLITTER:
         splitter_data[nid] = {
-          split_mode: ((data.split_mode as number) ?? 0) as 0 | 1,
-          output_count: (data.output_count as number) ?? 2,
-          weights: _parseWeights((data.weights as string) ?? '1,1'),
+          split_mode: num(data.split_mode, 0) === 1 ? 1 : 0,
+          output_count: num(data.output_count, 2),
+          weights: _parseWeights(str(data.weights, '1,1')),
         }
         break
       case NodeType.TIMER:
@@ -146,21 +189,70 @@ export function initState(graph: GSSGraph): SimState {
   const state: SimState = { tick: 0, pools, gate_states, converter_buffers, chance_rolls, splitter_data, timer_data }
 
   // Pre-evaluate gates based on initial pool amounts so gates open at t=0 if condition is met
-  for (const node of graph.nodes) {
-    if (node.type !== NodeType.GATE) continue
-    const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const variable = (data.variable as string) ?? ''
-    const operator = (data.operator as number) ?? 0
-    const target = (data.value as number) ?? 0
-    const current = _getTotalResource(variable, state.pools)
-    state.gate_states[nid] = _evaluateCondition(current, operator, target)
-  }
+  evaluateGates(state, graph)
 
   return state
 }
 
+/** Re-evaluates every Gate's open/closed state against the current pool totals (mutates `state`). */
+export function evaluateGates(state: SimState, graph: GSSGraph): void {
+  for (const node of graph.nodes) {
+    if (node.type !== NodeType.GATE) continue
+    const data = nodeData(node)
+    const current = _getTotalResource(str(data.variable), state.pools)
+    state.gate_states[String(node.id)] = _evaluateCondition(current, num(data.operator, 0), num(data.value, 0))
+  }
+}
+
+/**
+ * Applies scenario `initial_overrides` (pool_id → starting amount) to a
+ * freshly initialized state: amounts are clamped to [0, capacity] and gates
+ * are re-evaluated so that tick 1 already sees the overridden totals.
+ */
+export function applyInitialOverrides(
+  state: SimState,
+  graph: GSSGraph,
+  overrides: Record<string, number> | undefined,
+): void {
+  if (!overrides) return
+  let changed = false
+  for (const [poolId, amount] of Object.entries(overrides)) {
+    const pool = state.pools[poolId]
+    if (!pool || typeof amount !== 'number' || !Number.isFinite(amount)) continue
+    pool.amount = Math.min(Math.max(0, amount), Math.max(0, pool.capacity))
+    changed = true
+  }
+  if (changed) evaluateGates(state, graph)
+}
+
 // ==================== Canonical tick (pure — returns new state) ====================
+
+interface TickContext {
+  s: SimState
+  rng: RNGInstance
+  delta: number
+  outgoing: Map<string, GSSConnection[]>
+  incoming: Map<string, GSSConnection[]>
+  nodeById: Map<string, GSSNode>
+}
+
+function _buildContext(s: SimState, graph: GSSGraph, delta: number, rng: RNGInstance): TickContext {
+  const outgoing = new Map<string, GSSConnection[]>()
+  const incoming = new Map<string, GSSConnection[]>()
+  for (const conn of graph.connections) {
+    const from = String(conn.from_node)
+    const to = String(conn.to_node)
+    let out = outgoing.get(from)
+    if (!out) outgoing.set(from, (out = []))
+    out.push(conn)
+    let inc = incoming.get(to)
+    if (!inc) incoming.set(to, (inc = []))
+    inc.push(conn)
+  }
+  const nodeById = new Map<string, GSSNode>()
+  for (const node of graph.nodes) nodeById.set(String(node.id), node)
+  return { s, rng, delta, outgoing, incoming, nodeById }
+}
 
 // `rng` is a required, explicit dependency (audit R-06): every call site
 // must supply its own isolated createRNG(seed) instance. There is no
@@ -181,16 +273,16 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
   }
 
   const nodes = graph.nodes
-  const conns = graph.connections
+  const ctx = _buildContext(s, graph, delta, rng)
 
   // Step 1: Timers — exact-interval pulses
   for (const node of nodes) {
     if (node.type !== NodeType.TIMER) continue
     const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const resource = (data.resource as string) ?? ''
-    const amount = (data.amount as number) ?? 1.0
-    const interval = Math.max((data.interval as number) ?? 60, 0.001)
+    const data = nodeData(node)
+    const resource = str(data.resource)
+    const amount = num(data.amount, 1.0)
+    const interval = Math.max(num(data.interval, 60), 0.001)
 
     const timer = s.timer_data[nid]
     if (!timer) continue
@@ -199,16 +291,13 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     // Fire once per elapsed interval (handles delta > interval without loss).
     // Capped (oprava B2): `interval` má v UI minimum 0.001s a `dt` nemá
     // horní limit — bez pojistky by např. dt=100000 + interval=0.001
-    // znamenalo 100 milionů iterací v jediném simulateTick() volání
-    // (naměřeno ~1.6s zamrznutí UI na jeden tick, násobeno počtem běhů
-    // v Monte Carlu). Tohle je degenerovaná konfigurace, ne reálný use
-    // case — po dosažení stropu se přebytečný čas jen zahodí (accumulated
-    // se srazí na 0), aby další tick pokračoval čistě, místo aby simulace
-    // vůbec neskončila.
+    // znamenalo 100 milionů iterací v jediném simulateTick() volání.
+    // Po dosažení stropu se přebytečný čas zahodí (accumulated se srazí
+    // na 0), aby další tick pokračoval čistě.
     let pulses = 0
     while (timer.accumulated >= interval && pulses < MAX_TIMER_PULSES_PER_TICK) {
       timer.accumulated -= interval
-      _distributeToConnected(nid, resource, amount, conns, s, rng)
+      _distributeToConnected(nid, resource, amount, ctx)
       pulses++
     }
     if (pulses >= MAX_TIMER_PULSES_PER_TICK) {
@@ -219,79 +308,68 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
   // Step 2: Sources
   for (const node of nodes) {
     if (node.type !== NodeType.SOURCE) continue
-    const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const resource = (data.resource as string) ?? ''
-    const rate = (data.rate as number) ?? 1.0
-    const produced = rate * delta
-    _distributeToConnected(nid, resource, produced, conns, s, rng)
+    const data = nodeData(node)
+    _distributeToConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * delta, ctx)
   }
 
   // Step 3: Converters
   for (const node of nodes) {
     if (node.type !== NodeType.CONVERTER) continue
     const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const inputResource = (data.input_resource as string) ?? ''
-    const inputAmount = (data.input_amount as number) ?? 1.0
-    const outputResource = (data.output_resource as string) ?? ''
-    const outputAmount = (data.output_amount as number) ?? 1.0
-    const cycleTime = (data.cycle_time as number) ?? 1.0
+    const data = nodeData(node)
+    const inputResource = str(data.input_resource)
+    const inputAmount = num(data.input_amount, 1.0)
+    const outputResource = str(data.output_resource)
+    const outputAmount = num(data.output_amount, 1.0)
+    const cycleTime = num(data.cycle_time, 1.0)
 
-    const cycles = delta / cycleTime
-    const needed = inputAmount * cycles
+    // Nekladný cyklus/vstup = neplatná konfigurace (validátor ji hlásí) —
+    // dřív vedla k Infinity/zápornému `needed` a k růstu bufferu.
+    if (cycleTime <= 0 || inputAmount <= 0) continue
+
+    const needed = inputAmount * (delta / cycleTime)
     let consumed = 0
 
-    if (s.converter_buffers[nid]) {
-      const buf = s.converter_buffers[nid]
+    const buf = s.converter_buffers[nid]
+    if (buf) {
       const fromBuf = Math.min(needed, buf.input_buffer)
       buf.input_buffer -= fromBuf
       consumed += fromBuf
     }
 
     if (consumed < needed) {
-      consumed += _consumeFromConnected(nid, inputResource, needed - consumed, conns, s)
+      consumed += _consumeFromConnected(nid, inputResource, needed - consumed, ctx, 0)
     }
 
-    const actualCycles = inputAmount > 0 ? consumed / inputAmount : 0
-    const produced = outputAmount * actualCycles
-
+    const produced = outputAmount * (consumed / inputAmount)
     if (produced > 0) {
-      _distributeToConnected(nid, outputResource, produced, conns, s, rng)
+      _distributeToConnected(nid, outputResource, produced, ctx)
     }
   }
 
   // Step 4: Formula nodes — compute value from a safe expression, produce it
-  // Oprava B5: dřív se `_distinctResourceNames(nodes)` (a s ním `_getTotalResource`
-  // pro každé jméno) přepočítávalo pro KAŽDÝ Formula uzel zvlášť, i když je
-  // výsledek v rámci jednoho ticku vždy stejný — O(F×N) místo O(N) práce
-  // navíc. Teď se počítá jednou, a jen pokud graf vůbec nějaký Formula uzel má.
+  // Oprava B5: proměnné se počítají jednou za tick, ne pro každý Formula uzel.
   const formulaNodes = nodes.filter((n) => n.type === NodeType.FORMULA)
   if (formulaNodes.length > 0) {
-    const resourceNames = _distinctResourceNames(nodes)
-    const sharedVariables: Record<string, number> = { tick: s.tick }
-    for (const resName of resourceNames) {
+    const sharedVariables: Record<string, number> = {}
+    for (const resName of _distinctResourceNames(nodes)) {
       sharedVariables[resName] = _getTotalResource(resName, s.pools)
     }
+    // `tick` má přednost před případným resource stejného jména.
+    sharedVariables.tick = s.tick
 
     for (const node of formulaNodes) {
-      const nid = String(node.id)
-      const data = node.data as unknown as Record<string, unknown>
-      const expression = (data.expression as string) ?? '0'
-      const outputResource = (data.output_resource as string) ?? ''
-
+      const data = nodeData(node)
       let produced = 0
       try {
-        produced = evaluateFormula(expression, sharedVariables) * delta
+        produced = evaluateFormula(str(data.expression, '0'), sharedVariables) * delta
       } catch {
         // Neplatný výraz — GraphValidator na to upozorní; za běhu simulace
         // produkujeme 0 místo pádu celé simulace kvůli jednomu špatnému uzlu.
         produced = 0
       }
-      produced = Math.max(0, produced)
-
       if (produced > 0) {
-        _distributeToConnected(nid, outputResource, produced, conns, s, rng)
+        _distributeToConnected(String(node.id), str(data.output_resource), produced, ctx)
       }
     }
   }
@@ -300,38 +378,33 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
   for (const node of nodes) {
     if (node.type !== NodeType.PLAYER_ACTION) continue
     const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const resource = (data.resource as string) ?? ''
-    const amount = (data.amount as number) ?? 1.0
-    const cadence = Math.max((data.cadence as number) ?? 5.0, 0.001)
+    const data = nodeData(node)
+    const resource = str(data.resource)
+    const amount = num(data.amount, 1.0)
+    const cadence = Math.max(num(data.cadence, 5.0), 0.001)
 
-    const fireChance = Math.min(1, delta / cadence)
-    if (rng.randf() < fireChance) {
-      _distributeToConnected(nid, resource, amount, conns, s, rng)
+    // Očekávaný počet spuštění za tick = dt / cadence. Celá část je jistá,
+    // zbytek je pravděpodobnost — při dt > cadence se tak už neztrácí akce
+    // (dřív max. 1 spuštění za tick). Pro dt ≤ cadence je chování i spotřeba
+    // RNG beze změny (jeden hod s pravděpodobností dt/cadence).
+    const expected = delta / cadence
+    const guaranteed = Math.floor(expected)
+    let fires = guaranteed + (rng.randf() < expected - guaranteed ? 1 : 0)
+    fires = Math.min(fires, MAX_TIMER_PULSES_PER_TICK)
+    for (let i = 0; i < fires; i++) {
+      _distributeToConnected(nid, resource, amount, ctx)
     }
   }
 
   // Step 6: Drains
   for (const node of nodes) {
     if (node.type !== NodeType.DRAIN) continue
-    const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const resource = (data.resource as string) ?? ''
-    const rate = (data.rate as number) ?? 1.0
-    _consumeFromConnected(nid, resource, rate * delta, conns, s)
+    const data = nodeData(node)
+    _consumeFromConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * delta, ctx, 0)
   }
 
   // Step 7: Gates
-  for (const node of nodes) {
-    if (node.type !== NodeType.GATE) continue
-    const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const variable = (data.variable as string) ?? ''
-    const operator = (data.operator as number) ?? 0
-    const target = (data.value as number) ?? 0
-    const current = _getTotalResource(variable, s.pools)
-    s.gate_states[nid] = _evaluateCondition(current, operator, target)
-  }
+  evaluateGates(s, graph)
 
   // Step 8: Chance tracking — no-op (routing happens inline in distribute)
 
@@ -340,116 +413,83 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
 
 // ==================== Distribution (fan-out = duplicate) ====================
 
-function _distributeToConnected(
-  fromId: string,
-  resource: string,
-  amount: number,
-  conns: GSSConnection[],
-  s: SimState,
-  rng: RNGInstance,
-): void {
-  for (const conn of conns) {
-    if (String(conn.from_node) !== fromId) continue
-    const toId = String(conn.to_node)
+function _distributeToConnected(fromId: string, resource: string, amount: number, ctx: TickContext): void {
+  if (!(amount > 0)) return
+  for (const conn of ctx.outgoing.get(fromId) ?? []) {
+    _deliver(String(conn.to_node), resource, amount, ctx, 0)
+  }
+}
 
-    if (s.gate_states[toId] === false) continue
+/** Delivers `amount` of `resource` into node `targetId`, routing through Gate/Chance/Splitter nodes. */
+function _deliver(targetId: string, resource: string, amount: number, ctx: TickContext, depth: number): void {
+  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH) return
+  const s = ctx.s
 
-    if (s.chance_rolls[toId] !== undefined) {
-      _routeThroughChance(toId, resource, amount, conns, s, rng)
-      continue
+  // Gate: open → relay to all outputs, closed → block
+  const gateOpen = s.gate_states[targetId]
+  if (gateOpen !== undefined) {
+    if (!gateOpen) return
+    for (const conn of ctx.outgoing.get(targetId) ?? []) {
+      _deliver(String(conn.to_node), resource, amount, ctx, depth + 1)
     }
+    return
+  }
 
-    if (s.splitter_data[toId] !== undefined) {
-      _routeThroughSplitter(toId, resource, amount, conns, s, rng)
-      continue
-    }
+  if (s.chance_rolls[targetId] !== undefined) {
+    _routeThroughChance(targetId, resource, amount, ctx, depth)
+    return
+  }
 
-    if (s.converter_buffers[toId] !== undefined) {
-      s.converter_buffers[toId].input_buffer += amount
-      continue
-    }
+  if (s.splitter_data[targetId] !== undefined) {
+    _routeThroughSplitter(targetId, resource, amount, ctx, depth)
+    return
+  }
 
-    if (s.pools[toId] !== undefined) {
-      const pool = s.pools[toId]
-      if (pool.resource === resource || pool.resource === '') {
-        pool.resource = resource
-        const space = pool.capacity - pool.amount
-        pool.amount += Math.min(amount, space)
-      }
-    }
+  const buf = s.converter_buffers[targetId]
+  if (buf !== undefined) {
+    const node = ctx.nodeById.get(targetId)
+    const data = node ? nodeData(node) : {}
+    const inputResource = str(data.input_resource)
+    if (inputResource !== '' && inputResource !== resource) return
+    const inputAmount = num(data.input_amount, 1.0)
+    const cycleTime = num(data.cycle_time, 1.0)
+    // Buffer pojme nejvýš jeden tick (nebo jeden cyklus, pokud je větší) vstupu.
+    const limit = cycleTime > 0 ? Math.max(inputAmount, inputAmount * (ctx.delta / cycleTime)) : inputAmount
+    buf.input_buffer = Math.min(buf.input_buffer + amount, Math.max(0, limit))
+    return
+  }
+
+  const pool = s.pools[targetId]
+  if (pool !== undefined && (pool.resource === resource || pool.resource === '')) {
+    pool.resource = resource
+    pool.amount += Math.min(amount, Math.max(0, pool.capacity - pool.amount))
   }
 }
 
 // ==================== Chance routing ====================
 
-function _routeThroughChance(
-  chanceId: string,
-  resource: string,
-  amount: number,
-  conns: GSSConnection[],
-  s: SimState,
-  rng: RNGInstance,
-): void {
-  const stats = s.chance_rolls[chanceId]
-  const successPct = stats.success_chance
-  const roll = rng.randf()
-  const success = roll <= successPct / 100
+function _routeThroughChance(chanceId: string, resource: string, amount: number, ctx: TickContext, depth: number): void {
+  const stats = ctx.s.chance_rolls[chanceId]
+  // Striktní `<`: randf() vrací [0, 1), takže 0 % nikdy neuspěje a 100 % vždy.
+  const success = ctx.rng.randf() < stats.success_chance / 100
 
   stats.total += 1
   if (success) stats.successes += 1
 
+  // Port 0 = success, port 1 = failure. Tok se nikdy nepřelije na opačný
+  // výstup — pokud cíl na zvoleném portu tok nepřijme, tok se ztratí.
   const outputPort = success ? 0 : 1
-  let distributed = false
-
-  for (const conn of conns) {
-    if (String(conn.from_node) !== chanceId) continue
-    if (conn.from_port !== outputPort) continue
-    const targetId = String(conn.to_node)
-    if (s.pools[targetId] !== undefined) {
-      const pool = s.pools[targetId]
-      if (pool.resource === resource || pool.resource === '') {
-        pool.resource = resource
-        const space = pool.capacity - pool.amount
-        pool.amount += Math.min(amount, space)
-        distributed = true
-      }
-    }
-  }
-
-  // Fallback: try any connected pool on the SAME port — never cross to the opposite output
-  if (!distributed) {
-    for (const conn of conns) {
-      if (String(conn.from_node) !== chanceId) continue
-      if (conn.from_port !== outputPort) continue
-      const targetId = String(conn.to_node)
-      if (s.pools[targetId] !== undefined) {
-        const pool = s.pools[targetId]
-        if (pool.resource === resource || pool.resource === '') {
-          pool.resource = resource
-          const space = pool.capacity - pool.amount
-          pool.amount += Math.min(amount, space)
-          break
-        }
-      }
-    }
+  for (const conn of ctx.outgoing.get(chanceId) ?? []) {
+    if (portOf(conn) !== outputPort) continue
+    _deliver(String(conn.to_node), resource, amount, ctx, depth + 1)
   }
 }
 
 // ==================== Splitter routing ====================
 
-function _routeThroughSplitter(
-  splitterId: string,
-  resource: string,
-  amount: number,
-  conns: GSSConnection[],
-  s: SimState,
-  rng: RNGInstance,
-): void {
-  const sdata = s.splitter_data[splitterId]
-  const outConns = conns
-    .filter((c) => String(c.from_node) === splitterId)
-    .sort((a, b) => a.from_port - b.from_port)
-
+function _routeThroughSplitter(splitterId: string, resource: string, amount: number, ctx: TickContext, depth: number): void {
+  const sdata = ctx.s.splitter_data[splitterId]
+  const outConns = [...(ctx.outgoing.get(splitterId) ?? [])].sort((a, b) => portOf(a) - portOf(b))
   if (outConns.length === 0) return
 
   const numOutputs = outConns.length
@@ -460,68 +500,44 @@ function _routeThroughSplitter(
     for (let i = 0; i < numOutputs; i++) shares.push(share)
   } else {
     let totalWeight = 0
-    for (let i = 0; i < numOutputs; i++) {
-      const w = sdata.weights[i] ?? 1.0
-      totalWeight += w
-    }
+    for (let i = 0; i < numOutputs; i++) totalWeight += sdata.weights[i] ?? 1.0
     if (totalWeight <= 0) totalWeight = numOutputs
     for (let i = 0; i < numOutputs; i++) {
-      const w = sdata.weights[i] ?? 1.0
-      shares.push(amount * (w / totalWeight))
+      shares.push(amount * ((sdata.weights[i] ?? 1.0) / totalWeight))
     }
   }
 
   for (let i = 0; i < numOutputs; i++) {
-    const conn = outConns[i]
-    const targetId = String(conn.to_node)
-    const share = shares[i]
-
-    if (s.gate_states[targetId] === false) continue
-
-    if (s.chance_rolls[targetId] !== undefined) {
-      _routeThroughChance(targetId, resource, share, conns, s, rng)
-      continue
-    }
-    if (s.splitter_data[targetId] !== undefined) {
-      _routeThroughSplitter(targetId, resource, share, conns, s, rng)
-      continue
-    }
-    if (s.converter_buffers[targetId] !== undefined) {
-      s.converter_buffers[targetId].input_buffer += share
-      continue
-    }
-    if (s.pools[targetId] !== undefined) {
-      const pool = s.pools[targetId]
-      if (pool.resource === resource || pool.resource === '') {
-        pool.resource = resource
-        const space = pool.capacity - pool.amount
-        pool.amount += Math.min(share, space)
-      }
-    }
+    _deliver(String(outConns[i].to_node), resource, shares[i], ctx, depth + 1)
   }
 }
 
 // ==================== Consumption ====================
 
-function _consumeFromConnected(
-  toId: string,
-  resource: string,
-  amount: number,
-  conns: GSSConnection[],
-  s: SimState,
-): number {
+/**
+ * Consumes up to `amount` of `resource` from pools connected INTO `toId`.
+ * An open Gate between the pool and the consumer is transparent (the
+ * consumer pulls through it); a closed Gate blocks.
+ */
+function _consumeFromConnected(toId: string, resource: string, amount: number, ctx: TickContext, depth: number): number {
+  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH) return 0
   let consumed = 0
-  for (const conn of conns) {
-    if (String(conn.to_node) !== toId) continue
+  for (const conn of ctx.incoming.get(toId) ?? []) {
+    if (consumed >= amount) break
     const fromId = String(conn.from_node)
-    if (s.gate_states[fromId] === false) continue
-    if (s.pools[fromId] !== undefined) {
-      const pool = s.pools[fromId]
-      if (pool.resource === resource) {
-        const take = Math.min(amount - consumed, pool.amount)
+
+    const gateOpen = ctx.s.gate_states[fromId]
+    if (gateOpen !== undefined) {
+      if (gateOpen) consumed += _consumeFromConnected(fromId, resource, amount - consumed, ctx, depth + 1)
+      continue
+    }
+
+    const pool = ctx.s.pools[fromId]
+    if (pool !== undefined && pool.resource === resource) {
+      const take = Math.min(amount - consumed, pool.amount)
+      if (take > 0) {
         pool.amount -= take
         consumed += take
-        if (consumed >= amount) break
       }
     }
   }
@@ -590,15 +606,14 @@ function _deepCopyTimerData(
   return out
 }
 
-/** Distinct resource names referenced by POOL/SOURCE/DRAIN nodes — used as
+/** Distinct resource names referenced by nodes' `resource` field — used as
  * the variable set available to Formula expressions (mirrors Gate's
  * existing `variable` → resource-total lookup). */
 function _distinctResourceNames(nodes: GSSGraph['nodes']): string[] {
   const names = new Set<string>()
   for (const node of nodes) {
-    const data = node.data as unknown as Record<string, unknown>
-    const resource = data.resource as string | undefined
-    if (resource) names.add(resource)
+    const resource = nodeData(node).resource
+    if (typeof resource === 'string' && resource) names.add(resource)
   }
   return [...names]
 }

@@ -10,14 +10,17 @@ import { ITCH_URL } from '../../core/UpdateChecker'
 import { FREE_TIER_LIMITS } from '../../types/simulation'
 import { platform } from '../../platform'
 
+// Seznamy musí odpovídat skutečnému gatingu v kódu (ProGate / isPro).
 const FREE_FEATURES = [
   `Up to ${FREE_TIER_LIMITS.MAX_NODES} nodes`,
-  `Up to ${FREE_TIER_LIMITS.MAX_TICKS} simulation ticks`,
+  `Up to ${FREE_TIER_LIMITS.MAX_DURATION_SECONDS} s of simulated time per run`,
   'All 10 node types (try everything)',
-  'Basic simulation & charts',
-  'Health score overview',
-  '.gss save / load',
+  'Simulation, replay & charts',
+  'Health score & verdict',
+  '.gss save / load, CSV & diagnostics export',
+  'Version history + Economy Diff Viewer',
   'Sample gallery + Community Library',
+  'Multi-Persona Dashboard',
 ]
 
 const PRO_FEATURES = [
@@ -25,13 +28,13 @@ const PRO_FEATURES = [
   { label: 'Full Intelligence Dashboard',                  hot: true  },
   { label: '  ↳ Bottleneck & exploit detection',           hot: false },
   { label: '  ↳ RNG psychology & fairness analysis',       hot: false },
-  { label: 'AutoTuner — AI economy balancing',             hot: true  },
+  { label: 'AutoTuner — automatic parameter optimization', hot: true  },
   { label: 'A/B Scenario Comparison',                      hot: false },
   { label: 'Monte Carlo simulation',                       hot: false },
+  { label: 'Parameter Sweep (tornado chart)',               hot: false },
+  { label: 'Power Balance chart',                          hot: false },
   { label: 'Code export: C# · GDScript · TypeScript',      hot: true  },
   { label: 'PDF Report + Web Share HTML',                  hot: false },
-  { label: 'Version history (unlimited snapshots)',         hot: false },
-  { label: 'Priority support',                             hot: false },
 ]
 
 export function LicensePanel() {

@@ -110,13 +110,16 @@ function calcConfidence(ctx: SimulationContext, fr: FailureReport): number {
 }
 
 function calcCoverage(ctx: SimulationContext): number {
-  let covered = 0
-  if (Object.keys(ctx.resource_history).length > 0) covered++
-  if (ctx.state_transitions.length > 0) covered++
-  if (Object.keys(ctx.gate_times).length > 0) covered++
-  if (Object.keys(ctx.player_distribution).length > 0) covered++
-  if (ctx.cycle_count >= 100) covered++
-  return covered / 5
+  // state_transitions se počítají jen tehdy, když je volající dodá — GSS
+  // grafy žádný stavový automat nemají, takže dřív bylo pokrytí max. 80 %.
+  const factors = [
+    Object.keys(ctx.resource_history).length > 0,
+    Object.keys(ctx.gate_times).length > 0,
+    Object.keys(ctx.player_distribution).length > 0,
+    ctx.cycle_count >= 100,
+  ]
+  if (ctx.state_transitions.length > 0) factors.push(true)
+  return factors.filter(Boolean).length / factors.length
 }
 
 function countEdgeCases(ctx: SimulationContext): number {
@@ -124,8 +127,16 @@ function countEdgeCases(ctx: SimulationContext): number {
 
   for (const h of Object.values(ctx.resource_history)) {
     if (h.length === 0) continue
-    if (Math.min(...h) <= 0.01) count++
-    if (Math.max(...h) > 1_000_000) count++
+    // Smyčka místo Math.min(...h) — spread velmi dlouhé historie (stovky
+    // tisíc vzorků) končí RangeError: Maximum call stack size exceeded.
+    let min = Infinity
+    let max = -Infinity
+    for (const v of h) {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+    if (min <= 0.01) count++
+    if (max > 1_000_000) count++
   }
 
   for (const data of Object.values(ctx.gate_times)) {

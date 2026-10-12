@@ -37,7 +37,7 @@ export function WealthOverTimeChart() {
   const data = ts
     .filter((_, i) => i % step === 0)
     .map((frame) => {
-      const row: Record<string, number> = { tick: frame.time }
+      const row: Record<string, number> = { time: frame.time }
       for (const key of poolKeys) {
         row[key] = parseFloat((frame.pools[key] ?? 0).toFixed(3))
       }
@@ -49,10 +49,10 @@ export function WealthOverTimeChart() {
       <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
         <XAxis
-          dataKey="tick"
+          dataKey="time"
           tick={{ fill: '#6b7280', fontSize: 10 }}
           tickLine={false}
-          label={{ value: 'Tick', position: 'insideBottomRight', offset: -4, fill: '#6b7280', fontSize: 10 }}
+          label={{ value: 'Time (s)', position: 'insideBottomRight', offset: -4, fill: '#6b7280', fontSize: 10 }}
         />
         <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} width={40} />
         <Tooltip

@@ -47,7 +47,7 @@ export function useSimulation(): UseSimulationReturn {
     }
 
     const effectiveDuration = !isPro
-      ? Math.min(scenario.duration, FREE_TIER_LIMITS.MAX_TICKS)
+      ? Math.min(scenario.duration, FREE_TIER_LIMITS.MAX_DURATION_SECONDS)
       : scenario.duration
 
     setRunning(true)

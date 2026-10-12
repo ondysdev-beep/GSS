@@ -5,15 +5,22 @@ import { GSS_FORMAT_VERSION } from '../../types/graph'
 import { TICK_SPEC_VERSION } from '../TickEngine'
 import type { GSSGraph } from '../../types/graph'
 
-function sortedStringify(value: unknown): string {
+// Same semantics as JSON.stringify (undefined/functions are skipped in
+// objects and become null in arrays) — dřív `undefined` vyrobil text
+// "undefined", na kterém pak JSON.parse spadl a Save/Export selhal.
+function sortedStringify(value: unknown): string | undefined {
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') return undefined
   if (Array.isArray(value)) {
-    return '[' + value.map(sortedStringify).join(',') + ']'
+    return '[' + value.map((v) => sortedStringify(v) ?? 'null').join(',') + ']'
   }
   if (value !== null && typeof value === 'object') {
-    const keys = Object.keys(value as object).sort()
-    const pairs = keys.map(
-      (k) => `${JSON.stringify(k)}:${sortedStringify((value as Record<string, unknown>)[k])}`,
-    )
+    const obj = value as Record<string, unknown>
+    if (typeof (obj as { toJSON?: unknown }).toJSON === 'function') return JSON.stringify(obj)
+    const pairs: string[] = []
+    for (const k of Object.keys(obj).sort()) {
+      const v = sortedStringify(obj[k])
+      if (v !== undefined) pairs.push(`${JSON.stringify(k)}:${v}`)
+    }
     return '{' + pairs.join(',') + '}'
   }
   return JSON.stringify(value)
@@ -28,5 +35,5 @@ export function exportGSSJson(
     tick_spec_version: TICK_SPEC_VERSION,
     modified_at: new Date().toISOString(),
   }
-  return JSON.stringify(JSON.parse(sortedStringify(doc)), null, 2)
+  return JSON.stringify(JSON.parse(sortedStringify(doc) ?? '{}'), null, 2)
 }

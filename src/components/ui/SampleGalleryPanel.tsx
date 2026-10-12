@@ -3,8 +3,10 @@ import { useState } from 'react'
 import { SAMPLES, getCategories, loadSample } from '../../core/SampleGallery'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
-import type { GSSGraph } from '../../types/graph'
 import type { SampleMeta } from '../../core/SampleGallery'
+import { normalizeGraph } from '../../core/GraphNormalizer'
+import { validate } from '../../core/GraphValidator'
+import { useGuardedReplace } from './useGuardedReplace'
 
 const CATEGORY_COLORS: Record<string, string> = {
   Idle:     'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -32,6 +34,8 @@ export function SampleGalleryPanel({ onClose }: { onClose?: () => void }) {
 
   const setGraph  = useGraphStore((s) => s.setGraph)
   const resetSim  = useSimulationStore((s) => s.reset)
+  const setIssues = useSimulationStore((s) => s.setIssues)
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
 
   const categories = getCategories()
   const filtered = activeCategory
@@ -43,10 +47,15 @@ export function SampleGalleryPanel({ onClose }: { onClose?: () => void }) {
     setLoading(sample.file)
     setError(null)
     try {
-      const data = await loadSample(sample.file) as GSSGraph
-      setGraph(data)
-      resetSim()
-      onClose?.()
+      // Normalizace doplní name/label apod. (vzorky je dřív neměly a např.
+      // Save pak padal na chybějícím názvu grafu).
+      const g = normalizeGraph(await loadSample(sample.file), sample.name)
+      guard(() => {
+        setGraph(g)
+        resetSim()
+        setIssues(validate(g))
+        onClose?.()
+      }, `Load sample "${sample.name}"?`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -127,6 +136,7 @@ export function SampleGalleryPanel({ onClose }: { onClose?: () => void }) {
           </div>
         ))}
       </div>
+      {confirmDialog}
     </div>
   )
 }

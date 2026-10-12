@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import {
   validate, hasErrors, formatIssue,
   initState, simulateTick, createRNG,
+  normalizeGraph, looksLikeGraph,
   type GSSGraph,
 } from '../src/core/sdk'
 
@@ -51,18 +52,20 @@ function main() {
     process.exit(1)
   }
 
-  let graph: GSSGraph
+  let parsed: unknown
   try {
-    graph = JSON.parse(raw) as GSSGraph
+    parsed = JSON.parse(raw)
   } catch (err) {
     console.error(`File "${path}" does not contain valid JSON: ${err instanceof Error ? err.message : err}`)
     process.exit(1)
   }
 
-  if (!graph || typeof graph !== 'object' || !Array.isArray(graph.nodes)) {
+  if (!looksLikeGraph(parsed)) {
     console.error(`File "${path}" does not match the GSS graph structure (missing "nodes").`)
     process.exit(1)
   }
+  // Doplní chybějící pole (name, label, connections…) stejně jako aplikace.
+  const graph: GSSGraph = normalizeGraph(parsed)
 
   const issues = validate(graph)
   if (hasErrors(issues)) {

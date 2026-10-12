@@ -1,6 +1,12 @@
-// IssuesPanel — validation error/warning list below the graph editor
+// IssuesPanel — validation error/warning list below the graph editor.
+//
+// Validuje se živě nad aktuálním grafem (levné, čistá funkce) — dřív se
+// zobrazovaly problémy z posledního spuštění simulace, které po opravě grafu
+// zůstávaly viset až do dalšího běhu.
 
-import { useSimulationStore } from '../../store/simulationStore'
+import { useMemo, useState } from 'react'
+import { useGraphStore } from '../../store/graphStore'
+import { validate } from '../../core/GraphValidator'
 import type { ValidationIssue } from '../../types/simulation'
 
 const SEVERITY_STYLE: Record<string, string> = {
@@ -32,7 +38,10 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
 }
 
 export function IssuesPanel() {
-  const issues = useSimulationStore((s) => s.issues)
+  const graph = useGraphStore((s) => s.graph)
+  const [collapsed, setCollapsed] = useState(false)
+  // Prázdný graf není "chyba" k zobrazení pod editorem — jen se nedá spustit.
+  const issues = useMemo(() => (graph.nodes.length === 0 ? [] : validate(graph)), [graph])
 
   if (issues.length === 0) return null
 
@@ -41,18 +50,24 @@ export function IssuesPanel() {
   const infos    = issues.filter((i) => i.severity === 'INFO')
 
   return (
-    <div className="flex flex-col gap-1 mt-2">
-      <div className="flex items-center gap-3 text-[10px] text-muted mb-1">
-        <span>Validation</span>
+    <div className="flex flex-col gap-1 mt-2 px-3">
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex items-center gap-3 text-[10px] text-muted mb-1 text-left"
+        aria-expanded={!collapsed}
+      >
+        <span>{collapsed ? '▸' : '▾'} Validation</span>
         {errors.length   > 0 && <span className="text-red-400">{errors.length} error{errors.length > 1 ? 's' : ''}</span>}
         {warnings.length > 0 && <span className="text-yellow-400">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
         {infos.length    > 0 && <span className="text-blue-400">{infos.length} info</span>}
-      </div>
-      <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-        {[...errors, ...warnings, ...infos].map((issue, i) => (
-          <IssueRow key={`${issue.code}-${i}`} issue={issue} />
-        ))}
-      </div>
+      </button>
+      {!collapsed && (
+        <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+          {[...errors, ...warnings, ...infos].map((issue, i) => (
+            <IssueRow key={`${issue.code}-${issue.nodeId}-${i}`} issue={issue} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

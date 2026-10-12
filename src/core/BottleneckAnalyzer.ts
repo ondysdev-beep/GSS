@@ -33,6 +33,7 @@ export type WhyCauseType =
   | 'stalled_upstream'
   | 'converter'
   | 'splitter'
+  | 'chance'
 
 export interface WhyCause {
   node_id: string
@@ -114,7 +115,7 @@ export function findBottlenecks(
   const converters = graph.nodes.filter((n) => n.type === NodeType.CONVERTER)
   for (const node of converters) {
     const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
+    const data = (node.data ?? {}) as unknown as Record<string, unknown>
     const inputResource = String(data.input_resource ?? '')
     if (!inputResource) continue
     const inConns = incoming[nid] ?? []
@@ -132,24 +133,54 @@ export function findBottlenecks(
     }
   }
 
-  // Drains spotřebovávající rychleji než produkce
-  const drains = graph.nodes.filter((n) => n.type === NodeType.DRAIN)
-  const sources = graph.nodes.filter((n) => n.type === NodeType.SOURCE)
-  for (const node of drains) {
-    const nid = String(node.id)
-    const data = node.data as unknown as Record<string, unknown>
-    const drainResource = String(data.resource ?? '')
-    const drainRate = typeof data.rate === 'number' ? data.rate : 0
-    if (!drainResource || drainRate <= 0) continue
-    let totalProduction = 0
-    for (const src of sources) {
-      const sd = src.data as unknown as Record<string, unknown>
-      if (sd.resource === drainResource) totalProduction += typeof sd.rate === 'number' ? sd.rate : 0
+  // Drains spotřebovávající (dohromady) rychleji než VŠICHNI producenti
+  // daného resource. Dřív se počítaly jen Source uzly a každý drain zvlášť,
+  // takže Timer/Converter/Player Action produkce vedla k falešným poplachům
+  // a víc drainů na jednom resource k přehlédnutým.
+  const production = new Map<string, number>()
+  const unknownProduction = new Set<string>() // Formula — rychlost nejde staticky určit
+  const addProduction = (resource: unknown, rate: number) => {
+    if (typeof resource !== 'string' || !resource || !Number.isFinite(rate)) return
+    production.set(resource, (production.get(resource) ?? 0) + rate)
+  }
+  for (const node of graph.nodes) {
+    const d = (node.data ?? {}) as unknown as Record<string, unknown>
+    const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+    switch (node.type) {
+      case NodeType.SOURCE: addProduction(d.resource, n(d.rate, 0)); break
+      case NodeType.TIMER: addProduction(d.resource, n(d.amount, 0) / Math.max(n(d.interval, 60), 0.001)); break
+      case NodeType.PLAYER_ACTION: addProduction(d.resource, n(d.amount, 0) / Math.max(n(d.cadence, 5), 0.001)); break
+      case NodeType.CONVERTER: {
+        const cycle = n(d.cycle_time, 1)
+        if (cycle > 0) addProduction(d.output_resource, n(d.output_amount, 0) / cycle)
+        break
+      }
+      case NodeType.FORMULA:
+        if (typeof d.output_resource === 'string') unknownProduction.add(d.output_resource)
+        break
     }
-    if (drainRate > totalProduction * 1.1 && totalProduction > 0) {
+  }
+
+  const drainsByResource = new Map<string, { ids: string[]; rate: number }>()
+  for (const node of graph.nodes) {
+    if (node.type !== NodeType.DRAIN) continue
+    const data = (node.data ?? {}) as unknown as Record<string, unknown>
+    const resource = typeof data.resource === 'string' ? data.resource : ''
+    const rate = typeof data.rate === 'number' ? data.rate : 0
+    if (!resource || rate <= 0) continue
+    const entry = drainsByResource.get(resource) ?? { ids: [], rate: 0 }
+    entry.ids.push(String(node.id))
+    entry.rate += rate
+    drainsByResource.set(resource, entry)
+  }
+  for (const [resource, { ids, rate }] of drainsByResource) {
+    if (unknownProduction.has(resource)) continue
+    const totalProduction = production.get(resource) ?? 0
+    if (totalProduction > 0 && rate > totalProduction * 1.1) {
+      const who = ids.length === 1 ? `Drain '${ids[0]}' consumes` : `Drains ${ids.map((id) => `'${id}'`).join(', ')} consume`
       bottlenecks.push({
-        node_id: nid, type: 'overdrain', severity: 'medium',
-        reason: `Drain '${nid}' consumes ${drainRate.toFixed(1)}/s of '${drainResource}', but sources only produce ${totalProduction.toFixed(1)}/s`,
+        node_id: ids[0], type: 'overdrain', severity: 'medium',
+        reason: `${who} ${rate.toFixed(1)}/s of '${resource}', but producers only add ${totalProduction.toFixed(1)}/s`,
       })
     }
   }
@@ -223,7 +254,7 @@ export function whyEmpty(
           break
 
         case NodeType.SOURCE: {
-          const sd = node.data as unknown as Record<string, unknown>
+          const sd = (node.data ?? {}) as unknown as Record<string, unknown>
           const rate = typeof sd.rate === 'number' ? sd.rate : 0
           if (rate <= 0) {
             result.causes.push({ node_id: fromId, type: 'zero_rate_source', depth: depth + 1,
@@ -256,6 +287,19 @@ export function whyEmpty(
           result.causes.push({ node_id: fromId, type: 'splitter', depth: depth + 1,
             reason: `Splitter '${fromId}' splits flow — may reduce throughput` })
           queue.push({ node_id: fromId, depth: depth + 1 })
+          break
+
+        case NodeType.CHANCE:
+          result.causes.push({ node_id: fromId, type: 'chance', depth: depth + 1,
+            reason: `Chance '${fromId}' only routes flow to '${nid}' on one outcome (port 0 = success, port 1 = failure)` })
+          queue.push({ node_id: fromId, depth: depth + 1 })
+          break
+
+        case NodeType.TIMER:
+        case NodeType.PLAYER_ACTION:
+        case NodeType.FORMULA:
+          result.causes.push({ node_id: fromId, type: 'active_source', depth: depth + 1,
+            reason: `Producer '${fromId}' adds resources only periodically/conditionally — flow may be diverted, consumed or not yet triggered` })
           break
 
         default:

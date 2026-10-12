@@ -8,6 +8,9 @@
 
 import { platform, PlatformUnsupportedError } from '../platform'
 import { validate } from './GraphValidator'
+import { normalizeGraph } from './GraphNormalizer'
+import { TICK_SPEC_VERSION } from './TickEngine'
+import { GSS_FORMAT_VERSION } from '../types/graph'
 import type { GSSGraph } from '../types/graph'
 import type { ValidationIssue } from '../types/simulation'
 
@@ -49,7 +52,16 @@ export async function generateEconomyGraph(prompt: string): Promise<GSSGraph> {
     // Model dostal instrukci vracet čistý JSON, ale i tak občas obalí
     // odpověď do markdown fences — ošetříme nejběžnější případ.
     cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
-    parsed = JSON.parse(cleaned)
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch (err) {
+      // Text před/za JSONem ("Here is your economy: {...}") — zkusíme vyříznout
+      // nejvnější objekt; když ani to nejde, platí původní chyba.
+      const start = cleaned.indexOf('{')
+      const end = cleaned.lastIndexOf('}')
+      if (start < 0 || end <= start) throw err
+      parsed = JSON.parse(cleaned.slice(start, end + 1))
+    }
   } catch {
     // Oprava B9: pokud odpověď nekončí "}" nebo "]", nejpravděpodobněji šlo
     // o oříznutí kvůli limitu délky odpovědi (max_tokens), ne o obecnou
@@ -66,16 +78,16 @@ export async function generateEconomyGraph(prompt: string): Promise<GSSGraph> {
     throw new EconomyGenerationError('The model\'s response does not match the expected GSS graph structure.')
   }
 
+  // Normalizace doplní chybějící/poškozená pole (label, position, data, id
+  // jako string, porty…) — model je občas vynechá a editor by na tom spadl.
+  const now = new Date().toISOString()
   const graph: GSSGraph = {
-    version: '3.0',
-    tick_spec_version: 1,
-    name: (parsed as { name?: string }).name ?? 'AI Generated Economy',
-    description: (parsed as { description?: string }).description ?? '',
-    created_at: new Date().toISOString(),
-    modified_at: new Date().toISOString(),
+    ...normalizeGraph(parsed, 'AI Generated Economy'),
+    version: GSS_FORMAT_VERSION,
+    tick_spec_version: TICK_SPEC_VERSION,
+    created_at: now,
+    modified_at: now,
     simulation_seed: 42,
-    nodes: (parsed as { nodes: GSSGraph['nodes'] }).nodes,
-    connections: (parsed as { connections?: GSSGraph['connections'] }).connections ?? [],
   }
 
   const issues = validate(graph)

@@ -1,9 +1,13 @@
 {
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "RPG Loot",
+	"description": "Monster drops split into rare (15%) and common loot by a Chance node.",
 	"nodes": [
-		{"id": "monster_drops", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "loot", "rate": 3.0}},
-		{"id": "rarity_roll", "type": 5, "position": {"x": 300, "y": 150}, "data": {"success_chance": 15}},
-		{"id": "rare_items", "type": 0, "position": {"x": 550, "y": 50}, "data": {"resource": "loot", "capacity": 50}},
-		{"id": "common_items", "type": 0, "position": {"x": 550, "y": 250}, "data": {"resource": "loot", "capacity": 500}}
+		{"id": "monster_drops", "type": 1, "label": "Monster Drops", "position": {"x": 50, "y": 150}, "data": {"resource": "loot", "rate": 3}},
+		{"id": "rarity_roll", "type": 5, "label": "Rarity Roll", "position": {"x": 300, "y": 150}, "data": {"success_chance": 15}},
+		{"id": "rare_items", "type": 0, "label": "Rare Items", "position": {"x": 550, "y": 50}, "data": {"resource": "loot", "capacity": 50}},
+		{"id": "common_items", "type": 0, "label": "Common Items", "position": {"x": 550, "y": 250}, "data": {"resource": "loot", "capacity": 500}}
 	],
 	"connections": [
 		{"from_node": "monster_drops", "from_port": 0, "to_node": "rarity_roll", "to_port": 0},

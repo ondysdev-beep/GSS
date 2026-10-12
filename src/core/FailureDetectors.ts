@@ -172,7 +172,15 @@ export function analyzeContext(ctx: SimulationContext): FailureReport {
     if (f.type !== 'NONE') failures.push(f)
   }
 
-  // Circular dependency
+  // Economy collapse — celkové bohatství (součet všech poolů) proti počátečnímu
+  // stavu; archetypy hráčů (player_distribution) jako populační signál.
+  // Dřív tenhle detektor existoval, ale nikdo ho nevolal.
+  const collapse = detectEconomyCollapseFromContext(ctx)
+  if (collapse.type !== 'NONE') failures.push(collapse)
+
+  // Circular dependency — jen pokud volající dodá stavový automat
+  // (state_transitions). GSS grafy samy žádný nemají, takže z editoru je
+  // seznam prázdný a detektor se přeskočí.
   if (ctx.state_transitions.length > 0) {
     const reqGraph: Record<string, string[]> = {}
     for (const t of ctx.state_transitions) {
@@ -196,16 +204,26 @@ export function analyzeContext(ctx: SimulationContext): FailureReport {
   return buildReport(failures)
 }
 
-export function buildReport(failures: CriticalFailure[]): FailureReport {
-  let hasCritical = false
-  let hasUnsafe   = false
-  let worst: FailureSeverity = 'NONE'
-
-  for (const f of failures) {
-    if (f.severity === 'CRITICAL') { hasCritical = true; worst = 'CRITICAL' }
-    else if (f.severity === 'UNSAFE' && worst !== 'CRITICAL') { hasUnsafe = true; worst = 'UNSAFE' }
+/** Runs detectEconomyCollapse on the total wealth of a simulation context. */
+export function detectEconomyCollapseFromContext(ctx: SimulationContext): CriticalFailure {
+  const histories = Object.values(ctx.resource_history).filter((h) => h.length > 0)
+  if (histories.length === 0) return noFailure()
+  let initial = 0
+  let current = 0
+  for (const h of histories) {
+    initial += h[0]
+    current += h[h.length - 1]
   }
+  const archetypes = Object.values(ctx.player_distribution)
+  const broke = initial > 0 ? archetypes.filter((v) => v < initial * COLLAPSE_THRESHOLD).length : 0
+  return detectEconomyCollapse('Economy', current, initial, broke, Math.max(1, archetypes.length))
+}
 
+export function buildReport(failures: CriticalFailure[]): FailureReport {
+  const hasCritical = failures.some((f) => f.severity === 'CRITICAL')
+  // Dřív zůstalo has_unsafe=false, pokud UNSAFE selhání následovalo po CRITICAL.
+  const hasUnsafe = failures.some((f) => f.severity === 'UNSAFE')
+  const worst: FailureSeverity = hasCritical ? 'CRITICAL' : hasUnsafe ? 'UNSAFE' : 'NONE'
   return { failures, has_critical: hasCritical, has_unsafe: hasUnsafe, worst_severity: worst }
 }
 

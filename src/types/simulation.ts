@@ -75,8 +75,8 @@ export interface ValidationIssue {
 
 // Free tier hard limits — enough to explore, not enough for real projects
 export const FREE_TIER_LIMITS = {
-  MAX_NODES: 15,   // was 20 — feel the limit on real projects
-  MAX_TICKS: 120,  // was 60  — enough to see trends, not full analysis
+  MAX_NODES: 15,              // was 20 — feel the limit on real projects
+  MAX_DURATION_SECONDS: 120,  // simulated seconds per run (was misnamed MAX_TICKS — it limits duration, not ticks)
 } as const
 
 // ==================== SCENARIO ====================
@@ -153,12 +153,12 @@ export type PersonaStrategy = 'roi' | 'cheapest' | 'priority' | 'random'
 
 export interface Persona {
   name: string
-  cadence: number      // how often persona acts (every N ticks)
+  cadence: number      // seconds between decisions
   strategy: PersonaStrategy
-  budget_pct: number   // fraction of pool to spend
-  reserve_min: number  // minimum to keep in pool
-  priority_list: string[]
-  aggression: number   // 0–1
+  budget_pct: number   // max fraction of the pool to spend per decision (0–1)
+  reserve_min: number  // never spend below this amount
+  priority_list: string[]  // ordered Drain node IDs for the 'priority' strategy
+  aggression: number   // 0.0 (passive) – 1.0 (aggressive)
 }
 
 // ==================== COMPARE REPORT ====================

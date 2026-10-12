@@ -1,5 +1,6 @@
 // SampleGallery.ts — port GDScript SampleGallery.gd
-// Metadata registr 12 vzorových projektů.
+// Metadata registr 12 vzorových projektů. Texty `expected` odpovídají
+// skutečnému výsledku simulace (ověřeno spuštěním vzorků proti TickEngine v2).
 
 export interface SampleMeta {
   name: string
@@ -26,18 +27,18 @@ export const SAMPLES: SampleMeta[] = [
     file: 'crafting_chain.json',
     icon: '🔨',
     category: 'RPG',
-    description: 'Multi-resource crafting pipeline with a splitter. Demonstrates converters and splitters.',
-    expected: 'Wood and ore feed a converter, output splits to two pools.',
-    nodes: 6,
+    description: 'Ore is smelted into ingots by a converter; wood income is split 3:1 by a weighted splitter.',
+    expected: 'Ingots +1/s (2 ore → 1 ingot). Wood: 1.5/s to planks, 0.5/s to fuel, which burns as fast as it arrives.',
+    nodes: 9,
   },
   {
     name: 'Gacha System',
     file: 'gacha_system.json',
     icon: '🎲',
     category: 'Gacha',
-    description: 'Chance-based gacha pull with rare/common split. Uses a Chance node for probability.',
-    expected: '~15% of pulls are rare. Run Monte Carlo to see distribution.',
-    nodes: 4,
+    description: 'One pull per second through two chained Chance nodes: SSR roll, then SR roll on failure.',
+    expected: '~3% SSR, ~17% SR (18% of the remaining 97%), ~80% R. Run Monte Carlo to see the spread.',
+    nodes: 6,
   },
   {
     name: 'Energy Regen',
@@ -45,7 +46,7 @@ export const SAMPLES: SampleMeta[] = [
     icon: '⚡',
     category: 'Mobile',
     description: 'Energy regeneration vs. action cost. Classic mobile game stamina system.',
-    expected: 'Energy depletes over time (drain 5/s > regen 2/s). Empty in ~33s.',
+    expected: 'Starts full (100). Energy depletes at 3/s (drain 5/s > regen 2/s) — empty in ~33s.',
     nodes: 3,
   },
   {
@@ -72,7 +73,7 @@ export const SAMPLES: SampleMeta[] = [
     icon: '🚪',
     category: 'RPG',
     description: 'XP accumulation unlocks gold rewards via a gate. Demonstrates conditional flow.',
-    expected: 'No gold until XP ≥ 100 (~12.5s), then gold flows at 20/s.',
+    expected: 'No gold until XP ≥ 100 (~13s), then the Gate relays gold at 20/s.',
     nodes: 5,
   },
   {
@@ -90,7 +91,7 @@ export const SAMPLES: SampleMeta[] = [
     icon: '⚙️',
     category: 'RPG',
     description: 'Ore → Ingot → Sword pipeline with two converters. Tests multi-stage production.',
-    expected: 'Swords produced at 1 per 10s. Ore stockpiles if smelter is the bottleneck.',
+    expected: 'Ingots at 0.5/s, swords at 1 per 5s (0.2/s). Ore stockpiles — the smelter is the bottleneck.',
     nodes: 6,
   },
   {
@@ -107,8 +108,8 @@ export const SAMPLES: SampleMeta[] = [
     file: 'survival_hunger.json',
     icon: '🥩',
     category: 'Survival',
-    description: 'Food consumption vs. foraging. HP drains when food runs out (starvation gate).',
-    expected: 'Food depletes (drain 4/s > forage 3/s). HP drain activates when food < 10.',
+    description: 'Food consumption vs. foraging. HP drains through a starvation gate once food runs low.',
+    expected: 'Food falls 1/s from 100 (forage 3/s < hunger 4/s). Below 10 food (~88s) HP starts draining 2/s.',
     nodes: 6,
   },
   {
@@ -117,7 +118,7 @@ export const SAMPLES: SampleMeta[] = [
     icon: '🏃',
     category: 'Mobile',
     description: 'Stamina regen from rest + potions vs. action drain. Two sources, one sink.',
-    expected: 'Stamina depletes (drain 3/s > regen 2/s). Empty in ~50s.',
+    expected: 'Starts full (50). Stamina depletes at 1/s (drain 3/s > regen 2/s) — empty in ~50s.',
     nodes: 4,
   },
 ]

@@ -18,6 +18,12 @@ it isn't repeated here (see [CHANGELOG.md](./CHANGELOG.md) for what's new).
 2. Run the installer
 3. GSS appears in the Start menu
 
+### macOS (Apple Silicon or Intel)
+1. Download the `.dmg` for your architecture (`aarch64` = Apple Silicon, `x64` = Intel)
+2. Drag GSS into Applications
+
+(macOS builds are currently FREE edition only.)
+
 ### Linux (any distro)
 **AppImage** (recommended — no installation needed):
 ```bash
@@ -43,20 +49,23 @@ sudo dpkg -i gss_*_amd64.deb
 |---|---|---|
 | Node-based graph editor (10 node types) | ✅ | ✅ |
 | Deterministic simulation | ✅ | ✅ |
-| Intelligence Dashboard (health, verdict, bottlenecks) | ✅ | ✅ |
-| 12 sample projects + Community Library | ✅ | ✅ |
-| Exploit Discovery | ✅ | ✅ |
-| AI Economy Generator (BYOK) | ✅ | ✅ |
-| Economy Diff Viewer | ✅ | ✅ |
+| Health score & verdict | ✅ | ✅ |
+| Full Intelligence Dashboard (sub-scores, failures, bottlenecks, exploits, RNG) | ❌ | ✅ |
+| 12 sample projects + 5 templates + Community Library | ✅ | ✅ |
+| AI Economy Generator (BYOK, desktop only) | ✅ | ✅ |
+| Economy Diff Viewer + Version History | ✅ | ✅ |
 | Save/Load .gss files | ✅ | ✅ |
-| CSV export | ❌ | ✅ |
+| CSV + diagnostics export | ✅ | ✅ |
 | C# / Unity export | ❌ | ✅ |
 | GDScript / Godot 4 export | ❌ | ✅ |
 | TypeScript / Web export | ❌ | ✅ |
 | AutoTuner (parameter optimizer) | ❌ | ✅ |
 | Monte Carlo simulation | ❌ | ✅ |
 | Parameter Sweep | ❌ | ✅ |
+| A/B Scenario Comparison | ❌ | ✅ |
+| PDF Report + Web Share HTML | ❌ | ✅ |
 | Multi-Persona Dashboard | ✅ | ✅ |
+| Graph size / simulated time per run | 15 nodes / 120 s | unlimited |
 
 **Get PRO:** [neopryus.itch.io/idle-economy-simulator](https://neopryus.itch.io/idle-economy-simulator)
 
@@ -70,9 +79,9 @@ sudo dpkg -i gss_*_amd64.deb
 | **Source** | Generates resources at a set rate |
 | **Converter** | Transforms one resource into another |
 | **Drain** | Consumes resources at a set rate |
-| **Gate** | Conditional flow control (GT/LT/EQ/NEQ) |
-| **Chance** | Probability branch (0–100%) |
-| **Splitter** | Splits flow to multiple outputs by ratio |
+| **Gate** | Passes flow through while a condition on a resource total holds (GT/GTE/LT/LTE/EQ/NEQ); drains can also pull through an open gate |
+| **Chance** | Probability branch (0–100%): output 1 on success, output 2 on failure |
+| **Splitter** | Splits flow across its outputs equally or by weights |
 | **Timer** | Exact pulse every N seconds (e.g. daily reward) |
 | **Formula** | Computed output from a safe expression (e.g. `level * 1.2`) |
 | **Player Action** | Simulated player-triggered action, stochastic average cadence |
@@ -97,9 +106,11 @@ npm install
 # Dev mode
 npm run tauri dev
 
-# Production build
-node generate-icons.cjs   # generate icons first
+# Production build (icons are committed in src-tauri/icons)
 npm run tauri build
+
+# Regenerate all icon sizes after changing app-icon-source.png
+npm run icons
 ```
 
 Output installers are in `src-tauri/target/release/bundle/`.
@@ -112,17 +123,17 @@ Output installers are in `src-tauri/target/release/bundle/`.
 - **Graph editor**: ReactFlow
 - **State**: Zustand
 - **Desktop shell**: Tauri 2 (Rust)
-- **License validation**: Gumroad API via Tauri backend
+- **FREE / PRO**: separate builds (Cargo feature `pro` / `VITE_EDITION`), no license keys — see [SECURITY.md](./SECURITY.md)
 
 ---
 
 ## Changelog
 
-See [DEVLOG.md](./DEVLOG.md) for full history of changes from the Godot version.
+See [CHANGELOG.md](./CHANGELOG.md) for user-facing changes and [DEVLOG.md](./DEVLOG.md) for the detailed developer log.
 
 ---
 
 ## License
 
-© 2024 neopryus. All rights reserved.  
+© 2025-2026 neopryus. All rights reserved.  
 Free tier available. PRO license via [itch.io](https://neopryus.itch.io/idle-economy-simulator).

@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
 import { hasAnthropicApiKey, generateEconomyGraph, EconomyGenerationError } from '../../core/EconomyGenerator'
+import { useGuardedReplace } from './useGuardedReplace'
 
 interface AIGeneratorModalProps {
   open: boolean
@@ -29,6 +30,7 @@ export function AIGeneratorModal({ open, onClose, onOpenSettings }: AIGeneratorM
   const [prompt, setPrompt] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
 
   // Oprava B3: zavření modalu (backdrop klik / ✕) během běžícího generování
   // dřív nezrušilo probíhající `await generateEconomyGraph(...)` — když
@@ -36,16 +38,23 @@ export function AIGeneratorModal({ open, onClose, onOpenSettings }: AIGeneratorM
   // i když uživatel dialog už dávno zavřel. `cancelledRef` označí výsledek
   // jako zahozený namísto skutečného zrušení requestu (Tauri invoke ani
   // fetch tady AbortController nepodporují) — nejmenší oprava, co stačí.
+  //
+  // Číslo požadavku navíc: když uživatel dialog zavře, znovu otevře a spustí
+  // nové generování dřív, než doběhne staré, starý výsledek už nesmí vyhrát
+  // (samotný boolean se novým generováním vynuloval).
   const cancelledRef = useRef(false)
+  const requestIdRef = useRef(0)
 
   useEffect(() => {
     if (open) hasAnthropicApiKey().then(setKeyConfigured).catch(() => setKeyConfigured(false))
   }, [open])
 
-  if (!open) return null
+  // Potvrzovací dialog musí přežít zavření modalu (zavírá se hned po vygenerování).
+  if (!open) return confirmDialog
 
   function handleClose() {
     cancelledRef.current = true
+    requestIdRef.current++
     setPrompt('')
     setError(null)
     setLoading(false)
@@ -55,19 +64,23 @@ export function AIGeneratorModal({ open, onClose, onOpenSettings }: AIGeneratorM
   async function generate() {
     if (!prompt.trim()) return
     cancelledRef.current = false
+    const requestId = ++requestIdRef.current
+    const isStale = () => cancelledRef.current || requestId !== requestIdRef.current
     setLoading(true)
     setError(null)
     try {
       const graph = await generateEconomyGraph(prompt.trim())
-      if (cancelledRef.current) return  // uživatel mezitím dialog zavřel — výsledek zahodit
-      setGraph(graph)
-      resetSim()
+      if (isStale()) return  // dialog mezitím zavřen / spuštěn novější požadavek — výsledek zahodit
       handleClose()
+      guard(() => {
+        setGraph(graph)
+        resetSim()
+      }, `Replace the current graph with "${graph.name}"?`)
     } catch (err) {
-      if (cancelledRef.current) return
-      setError(err instanceof EconomyGenerationError ? err.message : `Generation failed: ${err}`)
+      if (isStale()) return
+      setError(err instanceof EconomyGenerationError ? err.message : `Generation failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      if (!cancelledRef.current) setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }
 

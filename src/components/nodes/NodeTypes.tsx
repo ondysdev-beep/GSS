@@ -1,35 +1,17 @@
-// NodeTypes.tsx — Custom ReactFlow node components for all 7 GSS node types
+// NodeTypes.tsx — Custom ReactFlow node components for all 10 GSS node types
 
 import { memo } from 'react'
 import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
 import type { NodeData } from '../../types/graph'
+import { useSettingsStore } from '../../store/settingsStore'
+import { NODE_TYPE_COLORS, NODE_TYPE_LABELS } from './nodeCatalog'
 
-export const NODE_TYPE_COLORS: Record<number, string> = {
-  0: '#3b82f6',  // POOL — blue
-  1: '#22c55e',  // SOURCE — green
-  2: '#eab308',  // CONVERTER — yellow
-  3: '#ef4444',  // DRAIN — red
-  4: '#a855f7',  // GATE — purple
-  5: '#f97316',  // CHANCE — orange
-  7: '#6b7280',  // SPLITTER — gray
-  8: '#14b8a6',  // TIMER — teal
-  9: '#ec4899',  // FORMULA — pink
-  10: '#84cc16', // PLAYER_ACTION — lime
-}
+export { NODE_TYPE_COLORS, NODE_TYPE_LABELS }
 
-export const NODE_TYPE_LABELS: Record<number, string> = {
-  0: 'POOL',
-  1: 'SOURCE',
-  2: 'CONVERTER',
-  3: 'DRAIN',
-  4: 'GATE',
-  5: 'CHANCE',
-  7: 'SPLITTER',
-  8: 'TIMER',
-  9: 'FORMULA',
-  10: 'PLAYER ACTION',
-}
+/** Source handle IDs of the Chance node — the handle decides the connection's from_port. */
+export const CHANCE_SUCCESS_HANDLE = 'out-0'
+export const CHANCE_FAILURE_HANDLE = 'out-1'
 
 // ==================== Shared primitives ====================
 
@@ -48,12 +30,19 @@ interface BaseNodeProps {
   label: string
   subtitle?: string
   fillPct?: number
-  handles?: 'source-only' | 'target-only' | 'both' | 'none'
+  handles?: 'source-only' | 'target-only' | 'both' | 'chance' | 'none'
   badge?: string
   liveValue?: string
 }
 
+/** Node data that is never undefined (imported/malformed nodes may lack `data`). */
+function dataOf<T>(data: GSSNodeData): Partial<T> {
+  return (data.data ?? {}) as unknown as Partial<T>
+}
+
 function NodeShell({ color, typeLabel, label, subtitle, fillPct, handles = 'both', badge, liveValue }: BaseNodeProps) {
+  const showSubtitles = useSettingsStore((s) => s.settings.showNodeSubtitles)
+  const handleStyle = { background: color, borderColor: '#0a0a14' }
   return (
     <div
       className="relative rounded-lg border-2 bg-card min-w-[120px] max-w-[180px] shadow-lg select-none"
@@ -88,27 +77,28 @@ function NodeShell({ color, typeLabel, label, subtitle, fillPct, handles = 'both
             >{liveValue}</span>
           )}
         </div>
-        {subtitle && (
+        {showSubtitles && subtitle && (
           <div className="text-muted text-[10px] truncate mt-0.5">{subtitle}</div>
         )}
       </div>
 
       {/* ReactFlow handles */}
-      {(handles === 'target-only' || handles === 'both') && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="!w-2.5 !h-2.5 !border-2"
-          style={{ background: color, borderColor: '#0a0a14' }}
-        />
+      {(handles === 'target-only' || handles === 'both' || handles === 'chance') && (
+        <Handle type="target" position={Position.Left} className="!w-2.5 !h-2.5 !border-2" style={handleStyle} />
       )}
       {(handles === 'source-only' || handles === 'both') && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="!w-2.5 !h-2.5 !border-2"
-          style={{ background: color, borderColor: '#0a0a14' }}
-        />
+        <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !border-2" style={handleStyle} />
+      )}
+      {handles === 'chance' && (
+        <>
+          {/* Dva výstupy: port 0 = úspěch, port 1 = neúspěch (dřív šel v editoru vytvořit jen port 0). */}
+          <Handle id={CHANCE_SUCCESS_HANDLE} type="source" position={Position.Right} title="Success (output 1)"
+            className="!w-2.5 !h-2.5 !border-2" style={{ ...handleStyle, top: '35%', background: '#22c55e' }} />
+          <Handle id={CHANCE_FAILURE_HANDLE} type="source" position={Position.Right} title="Failure (output 2)"
+            className="!w-2.5 !h-2.5 !border-2" style={{ ...handleStyle, top: '75%', background: '#ef4444' }} />
+          <span className="absolute right-2 text-[8px] text-green-400 pointer-events-none" style={{ top: 'calc(35% - 6px)' }}>✓</span>
+          <span className="absolute right-2 text-[8px] text-red-400 pointer-events-none" style={{ top: 'calc(75% - 6px)' }}>✗</span>
+        </>
       )}
     </div>
   )
@@ -117,13 +107,13 @@ function NodeShell({ color, typeLabel, label, subtitle, fillPct, handles = 'both
 // ==================== Pool node ====================
 
 const PoolNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { resource?: string; capacity?: number; initial_amount?: number }
+  const d = dataOf<{ resource: string; capacity: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[0]}
       typeLabel="POOL"
       label={data.label}
-      subtitle={`${d.resource ?? ''} · cap ${d.capacity ?? 0}`}
+      subtitle={`${d.resource ?? ''} · cap ${d.capacity ?? 100}`}
       fillPct={data.fillPct}
       liveValue={data.liveValue}
       handles="both"
@@ -135,13 +125,13 @@ PoolNode.displayName = 'PoolNode'
 // ==================== Source node ====================
 
 const SourceNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { resource?: string; rate?: number }
+  const d = dataOf<{ resource: string; rate: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[1]}
       typeLabel="SOURCE"
       label={data.label}
-      subtitle={`${d.resource ?? ''} +${d.rate ?? 0}/tick`}
+      subtitle={`${d.resource ?? ''} +${d.rate ?? 0}/s`}
       handles="source-only"
     />
   )
@@ -151,13 +141,13 @@ SourceNode.displayName = 'SourceNode'
 // ==================== Converter node ====================
 
 const ConverterNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { input_resource?: string; input_amount?: number; output_resource?: string; output_amount?: number; cycle_time?: number }
+  const d = dataOf<{ input_resource: string; input_amount: number; output_resource: string; output_amount: number; cycle_time: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[2]}
       typeLabel="CONVERTER"
       label={data.label}
-      subtitle={`${d.input_amount ?? 0} ${d.input_resource ?? ''} → ${d.output_amount ?? 0} ${d.output_resource ?? ''}`}
+      subtitle={`${d.input_amount ?? 0} ${d.input_resource ?? ''} → ${d.output_amount ?? 0} ${d.output_resource ?? ''} / ${d.cycle_time ?? 1}s`}
       handles="both"
     />
   )
@@ -167,13 +157,13 @@ ConverterNode.displayName = 'ConverterNode'
 // ==================== Drain node ====================
 
 const DrainNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { resource?: string; rate?: number }
+  const d = dataOf<{ resource: string; rate: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[3]}
       typeLabel="DRAIN"
       label={data.label}
-      subtitle={`${d.resource ?? ''} -${d.rate ?? 0}/tick`}
+      subtitle={`${d.resource ?? ''} -${d.rate ?? 0}/s`}
       handles="target-only"
     />
   )
@@ -185,15 +175,18 @@ DrainNode.displayName = 'DrainNode'
 const GATE_OP_LABELS: Record<number, string> = { 0: '>', 1: '≥', 2: '<', 3: '≤', 4: '=', 5: '≠' }
 
 const GateNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { variable?: string; operator?: number; value?: number }
+  const d = dataOf<{ variable: string; operator: number; value: number }>(data)
   const op = GATE_OP_LABELS[d.operator ?? 0] ?? '>'
+  // Stav otevřeno/zavřeno je známý jen během replaye simulace — dřív se bez
+  // simulace vždy ukazovalo "✗", jako by byl gate zavřený.
+  const badge = data.isActive === undefined ? 'GATE' : data.isActive ? 'GATE ✓ OPEN' : 'GATE ✗ CLOSED'
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[4]}
       typeLabel="GATE"
       label={data.label}
       subtitle={`${d.variable ?? ''} ${op} ${d.value ?? 0}`}
-      badge={data.isActive ? 'GATE ✓' : 'GATE ✗'}
+      badge={badge}
       handles="both"
     />
   )
@@ -203,14 +196,14 @@ GateNode.displayName = 'GateNode'
 // ==================== Chance node ====================
 
 const ChanceNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { success_chance?: number }
+  const d = dataOf<{ success_chance: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[5]}
       typeLabel="CHANCE"
       label={data.label}
       subtitle={`${d.success_chance ?? 50}% success`}
-      handles="both"
+      handles="chance"
     />
   )
 })
@@ -219,14 +212,14 @@ ChanceNode.displayName = 'ChanceNode'
 // ==================== Splitter node ====================
 
 const SplitterNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { split_mode?: number; output_count?: number; weights?: string }
-  const modeLabel = d.split_mode === 1 ? 'Weighted' : 'Equal'
+  const d = dataOf<{ split_mode: number; weights: string }>(data)
+  const modeLabel = d.split_mode === 1 ? `Weighted ${d.weights ?? '1,1'}` : 'Equal'
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[7]}
       typeLabel="SPLITTER"
       label={data.label}
-      subtitle={`${modeLabel} · ${d.output_count ?? 2} outputs`}
+      subtitle={`${modeLabel} · splits across all outputs`}
       handles="both"
     />
   )
@@ -236,7 +229,7 @@ SplitterNode.displayName = 'SplitterNode'
 // ==================== Timer node ====================
 
 const TimerNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { resource?: string; amount?: number; interval?: number }
+  const d = dataOf<{ resource: string; amount: number; interval: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[8]}
@@ -253,13 +246,13 @@ TimerNode.displayName = 'TimerNode'
 // ==================== Formula node ====================
 
 const FormulaNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { expression?: string; output_resource?: string }
+  const d = dataOf<{ expression: string; output_resource: string }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[9]}
       typeLabel="FORMULA"
       label={data.label}
-      subtitle={`${d.expression ?? '0'} → ${d.output_resource ?? ''}`}
+      subtitle={`${d.expression ?? '0'} → ${d.output_resource ?? ''} /s`}
       liveValue={data.liveValue}
       handles="source-only"
     />
@@ -270,7 +263,7 @@ FormulaNode.displayName = 'FormulaNode'
 // ==================== Player Action node ====================
 
 const PlayerActionNode = memo(({ data }: NodeProps<GSSNodeData>) => {
-  const d = data.data as { resource?: string; amount?: number; cadence?: number }
+  const d = dataOf<{ resource: string; amount: number; cadence: number }>(data)
   return (
     <NodeShell
       color={NODE_TYPE_COLORS[10]}

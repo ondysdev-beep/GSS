@@ -10,10 +10,18 @@ import type {
   PlatformAdapter, OpenFileResult, AppUpdateInfo,
 } from './types'
 
+/** Human-readable filter name for the native dialog (was always "GSS Graph", even for CSV/C# exports). */
+function filterName(extensions: string[]): string {
+  const names: Record<string, string> = {
+    gss: 'GSS Graph', json: 'JSON', csv: 'CSV', cs: 'C# Script', gd: 'GDScript', ts: 'TypeScript',
+  }
+  return extensions.map((e) => names[e] ?? e.toUpperCase()).join(' / ')
+}
+
 async function openFile(extensions: string[]): Promise<OpenFileResult | null> {
   const selected = await open({
     multiple: false,
-    filters: [{ name: 'GSS Graph', extensions }],
+    filters: [{ name: filterName(extensions), extensions }],
   })
   if (!selected || typeof selected !== 'string') return null
   const content = await invoke<string>('open_file', { path: selected })
@@ -22,7 +30,7 @@ async function openFile(extensions: string[]): Promise<OpenFileResult | null> {
 
 async function saveFile(extensions: string[], defaultName: string, content: string): Promise<string | null> {
   const savePath = await save({
-    filters: [{ name: 'GSS Graph', extensions }],
+    filters: [{ name: filterName(extensions), extensions }],
     defaultPath: defaultName,
   })
   if (!savePath) return null
@@ -88,6 +96,7 @@ async function installAppUpdate(onProgress?: (downloaded: number, total: number)
 
 export const tauriPlatform: PlatformAdapter = {
   name: 'tauri',
+  supportsAiGenerator: true,
   openFile,
   saveFile,
   getBuildVariant,

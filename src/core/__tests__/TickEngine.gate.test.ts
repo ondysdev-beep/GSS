@@ -51,16 +51,9 @@ describe('TickEngine — Gate pre-evaluation (Fix 1.3)', () => {
     expect(state.gate_states['gate1']).toBe(false)
   })
 
-  it('should allow flow to pool behind open gate on tick 1', () => {
-    // In TickEngine, a gate node blocks flow when it's the target of a connection and is closed.
-    // Source → Pool2: but Pool2 is behind Gate1. The gate check in _distributeToConnected
-    // skips connections where the target is a closed gate. So we test: Source → Gate1 → Pool2
-    // won't work as relay. Instead, test the actual gate semantics:
-    // Source sends to Pool2 directly, but a Drain consumes from Pool1 only if Gate is open
-    // (in _consumeFromConnected, gate check is on from_node).
-    //
-    // Simplest valid test: Source → Pool1, Drain reads from Pool1 via Gate.
-    // Gate open → drain can consume. Gate closed → drain blocked.
+  it('keeps a gate open across ticks while its condition still holds', () => {
+    // Gate relay itself is covered in TickEngine.v2.test.ts; this checks that
+    // a gate pre-opened at t=0 stays open while the pool total stays > 50.
     const graph: GSSGraph = {
       version: '3.0',
       tick_spec_version: 1,

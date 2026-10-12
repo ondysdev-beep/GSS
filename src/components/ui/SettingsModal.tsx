@@ -6,6 +6,9 @@ import { useLicense } from '../../hooks/useLicense'
 import { APP_VERSION, ITCH_URL, GITHUB_URL } from '../../core/UpdateChecker'
 import { FREE_TIER_LIMITS } from '../../types/simulation'
 import { hasAnthropicApiKey, saveAnthropicApiKey, clearAnthropicApiKey } from '../../core/EconomyGenerator'
+import { platform } from '../../platform'
+import { useSimulationStore } from '../../store/simulationStore'
+import { ConfirmDialog } from './ConfirmDialog'
 
 type Section = 'license' | 'editor' | 'simulation' | 'ai' | 'about'
 
@@ -25,7 +28,9 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
     }
   }, [initialSection])
   const { settings, update, reset } = useSettingsStore()
+  const setScenario = useSimulationStore((s) => s.setScenario)
   const { isPro } = useLicense()
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false)
 
   // AI Generator API key state
   const [aiKeyConfigured, setAiKeyConfigured] = useState<boolean | null>(null)
@@ -34,7 +39,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
   const [aiKeyBusy, setAiKeyBusy] = useState(false)
 
   useEffect(() => {
-    if (open) hasAnthropicApiKey().then(setAiKeyConfigured).catch(() => setAiKeyConfigured(false))
+    if (open && platform.supportsAiGenerator) hasAnthropicApiKey().then(setAiKeyConfigured).catch(() => setAiKeyConfigured(false))
   }, [open])
 
   async function handleSaveAiKey() {
@@ -47,7 +52,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
       setAiKeyConfigured(true)
       setAiKeyMsg('✓ Key saved locally.')
     } catch (err) {
-      setAiKeyMsg(`Failed to save key: ${err}`)
+      setAiKeyMsg(`Failed to save key: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAiKeyBusy(false)
     }
@@ -59,17 +64,21 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
       await clearAnthropicApiKey()
       setAiKeyConfigured(false)
       setAiKeyMsg('Key removed.')
+    } catch (err) {
+      setAiKeyMsg(`Failed to remove key: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAiKeyBusy(false)
     }
   }
 
-  // Close on Escape
+  // Close on Escape — jen když je modal otevřený (dřív listener běžel stále
+  // a každé Escape kdekoli v aplikaci volalo onClose).
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    if (!open) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape' && !confirmResetOpen) onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [open, onClose, confirmResetOpen])
 
   if (!open) return null
 
@@ -82,6 +91,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
   ]
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={onClose}
@@ -110,7 +120,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
           ))}
           <div className="flex-1" />
           <button
-            onClick={() => { if (confirm('Reset all settings to defaults?')) reset() }}
+            onClick={() => setConfirmResetOpen(true)}
             className="mx-3 mb-2 px-3 py-1.5 text-[10px] text-white/30 hover:text-white/60 border border-white/10 hover:border-white/20 rounded transition-colors"
           >
             Reset to defaults
@@ -197,33 +207,39 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
               <>
                 <SettingNumber
                   label="Default duration"
-                  description="Number of ticks for new simulations"
+                  description="Simulated time per run (also applied to the current scenario)"
                   value={settings.defaultDuration}
-                  min={10} max={3600} step={10}
-                  unit="ticks"
-                  onChange={(v) => update({ defaultDuration: v })}
+                  min={1} max={100000} step={10}
+                  unit="s"
+                  onChange={(v) => { update({ defaultDuration: v }); setScenario({ duration: v }) }}
                 />
                 <SettingNumber
                   label="Default Δt (tick delta)"
-                  description="Time step per tick in seconds"
+                  description="Time step per tick in seconds (also applied to the current scenario)"
                   value={settings.defaultDt}
-                  min={0.1} max={10} step={0.1}
+                  min={0.01} max={10} step={0.1}
                   unit="s / tick"
-                  onChange={(v) => update({ defaultDt: v })}
+                  onChange={(v) => { update({ defaultDt: v }); setScenario({ dt: v }) }}
                 />
                 <SettingNumber
                   label="Default seed"
-                  description="RNG seed for reproducible simulations (0 = random)"
+                  description="Project seed for NEW graphs (0 = a random seed on every run)"
                   value={settings.defaultSeed}
                   min={0} max={999999} step={1}
                   unit=""
-                  onChange={(v) => update({ defaultSeed: v })}
+                  onChange={(v) => update({ defaultSeed: Math.floor(v) })}
                 />
               </>
             )}
 
             {/* ── AI GENERATOR ── */}
-            {section === 'ai' && (
+            {section === 'ai' && !platform.supportsAiGenerator && (
+              <p className="text-xs text-white/50 leading-relaxed">
+                The AI Economy Generator is only available in the <strong className="text-white/70">desktop app</strong>.
+                The web version cannot call the Anthropic API directly (no CORS proxy), so no API key is stored here.
+              </p>
+            )}
+            {section === 'ai' && platform.supportsAiGenerator && (
               <>
                 <p className="text-xs text-white/50 leading-relaxed">
                   AI Economy Generator uses <strong className="text-white/70">your own</strong> Anthropic API key — GSS has no AI backend of its own and never sends your key anywhere except <code className="text-white/60">api.anthropic.com</code>. The call goes straight from the desktop app, not through any GSS server, so API costs go to your own account.
@@ -282,7 +298,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
                     How the key is stored and used
                   </summary>
                   <div className="mt-2 p-3 bg-white/5 rounded text-[10px] text-white/40 leading-relaxed space-y-1">
-                    <p>1. The key is stored locally in an encrypted store file (<code>gss.bin</code>) — never in browser <code>localStorage</code></p>
+                    <p>1. The key is stored locally in the app's settings store file (<code>gss.bin</code> in the app data folder — plain JSON, not encrypted; anyone with access to your user account can read it) — never in browser <code>localStorage</code></p>
                     <p>2. After saving, the frontend never asks for the value again — only whether one is set</p>
                     <p>3. Calls to the Anthropic API happen entirely from the Rust side of the app, never from the WebView</p>
                     <p>4. Generated graphs always go through the same validation as manual edits — a bad model response is never silently loaded into the editor</p>
@@ -304,7 +320,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
                   <p className="text-[11px] text-white/40">
                     {isPro
                       ? "You're running the PRO build. Thanks for supporting GSS!"
-                      : `Free tier: max ${FREE_TIER_LIMITS.MAX_NODES} nodes, ${FREE_TIER_LIMITS.MAX_TICKS} ticks. Upgrade to unlock all features.`}
+                      : `Free tier: max ${FREE_TIER_LIMITS.MAX_NODES} nodes, ${FREE_TIER_LIMITS.MAX_DURATION_SECONDS} s of simulated time per run. Upgrade to unlock all features.`}
                   </p>
                 </div>
 
@@ -353,7 +369,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
                   {[
                     { label: 'GitHub', url: GITHUB_URL, icon: '⭐' },
                     { label: 'Get PRO', url: ITCH_URL, icon: '🎮' },
-                    { label: 'DEVLOG', url: `${GITHUB_URL}/blob/master/DEVLOG.md`, icon: '📋' },
+                    { label: 'DEVLOG', url: `${GITHUB_URL}/blob/main/DEVLOG.md`, icon: '📋' },
                     { label: 'Releases', url: `${GITHUB_URL}/releases`, icon: '📦' },
                   ].map((link) => (
                     <a
@@ -379,6 +395,15 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={confirmResetOpen}
+      title="Reset all settings?"
+      message="All editor and simulation preferences go back to their defaults."
+      confirmLabel="Reset to defaults"
+      onConfirm={() => { setConfirmResetOpen(false); reset() }}
+      onCancel={() => setConfirmResetOpen(false)}
+    />
+    </>
   )
 }
 
@@ -432,6 +457,14 @@ function SettingNumber({ label, description, value, min, max, step, unit, onChan
   label: string; description?: string; value: number
   min: number; max: number; step: number; unit: string; onChange: (v: number) => void
 }) {
+  // Lokální text: mezistavy jako "" nebo "0." se nezapíšou (dřív Number("")
+  // uložilo 0, např. Δt = 0 → zamrznutí simulace), ale dají se dopsat.
+  const [text, setText] = useState(String(value))
+  useEffect(() => {
+    setText((prev) => (Number(prev) === value && prev.trim() !== '' ? prev : String(value)))
+  }, [value])
+  const parsed = parseFloat(text)
+  const valid = Number.isFinite(parsed) && parsed >= min && parsed <= max
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="flex-1">
@@ -441,12 +474,18 @@ function SettingNumber({ label, description, value, min, max, step, unit, onChan
       <div className="flex items-center gap-2 shrink-0">
         <input
           type="number"
-          value={value}
+          value={text}
           min={min}
           max={max}
           step={step}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="w-20 bg-card border border-border rounded px-2 py-1 text-xs text-white/80 font-mono outline-none focus:border-accent/50 transition-colors text-right"
+          title={`Allowed range: ${min} – ${max}`}
+          onChange={(e) => {
+            setText(e.target.value)
+            const v = parseFloat(e.target.value)
+            if (Number.isFinite(v) && v >= min && v <= max) onChange(v)
+          }}
+          onBlur={() => setText(String(value))}
+          className={`w-20 bg-card border rounded px-2 py-1 text-xs text-white/80 font-mono outline-none transition-colors text-right ${valid ? 'border-border focus:border-accent/50' : 'border-danger'}`}
         />
         {unit && <span className="text-[10px] text-white/30 w-12">{unit}</span>}
       </div>

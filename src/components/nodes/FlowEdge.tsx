@@ -2,7 +2,7 @@
 // Shows resource flow rate on edges during simulation replay.
 
 import { memo } from 'react'
-import { BaseEdge, EdgeLabelRenderer, getBezierPath } from 'reactflow'
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, getStraightPath, getSmoothStepPath } from 'reactflow'
 import type { EdgeProps } from 'reactflow'
 
 export interface FlowEdgeData {
@@ -10,6 +10,8 @@ export interface FlowEdgeData {
   maxFlowRate?: number    // max flow rate across all edges (for normalization)
   isGateBlocked?: boolean // true if a gate on this path is closed
   animated?: boolean      // whether simulation is active
+  edgeStyle?: 'default' | 'straight' | 'step'  // Settings → Edge style
+  fromPort?: number       // connection's output port (Chance: 0 = success, 1 = failure)
 }
 
 function FlowEdge({
@@ -23,14 +25,12 @@ function FlowEdge({
   data,
   markerEnd,
 }: EdgeProps<FlowEdgeData>) {
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  })
+  // Settings → "Edge style" (dřív nastavení existovalo, ale nic ho nečetlo)
+  const pathParams = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition }
+  const [edgePath, labelX, labelY] =
+    data?.edgeStyle === 'straight' ? getStraightPath(pathParams)
+      : data?.edgeStyle === 'step' ? getSmoothStepPath(pathParams)
+        : getBezierPath(pathParams)
 
   const flowRate = data?.flowRate ?? 0
   const maxFlow = data?.maxFlowRate ?? 1

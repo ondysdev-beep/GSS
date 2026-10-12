@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
-  "changelog": "itch.io license system, bug fixes, full English UI, settings persistence",
+  "version": "3.4.0",
+  "changelog": "Gates now pass flow through, all samples and templates work, editor crash and undo fixes, per-edition auto-updates",
   "download_url": "https://neopryus.itch.io/idle-economy-simulator",
   "mandatory": false
 }

@@ -4,23 +4,28 @@ import { create } from 'zustand'
 import { GSS_FORMAT_VERSION } from '../types/graph'
 import { TICK_SPEC_VERSION } from '../core/TickEngine'
 import { CommandManager } from '../core/CommandManager'
+import { normalizeGraph } from '../core/GraphNormalizer'
+import { getSettings } from './settingsStore'
 import type { GSSGraph, GSSNode, GSSConnection } from '../types/graph'
 
 interface GraphStore {
   graph: GSSGraph
-  graphVersion: number   // increments on full graph replace (setGraph / newGraph)
+  graphVersion: number   // increments whenever the whole graph is replaced (load, new, undo, redo)
   isDirty: boolean
   canUndo: boolean
   canRedo: boolean
 
+  /** Replaces the whole graph (load/template/import). Normalizes the input and resets undo history. */
   setGraph: (graph: GSSGraph) => void
   setNodes: (nodes: GSSNode[]) => void
   setConnections: (connections: GSSConnection[]) => void
   addNode: (node: GSSNode) => void
   removeNode: (id: string) => void
-  updateNode: (id: string, data: Partial<GSSNode>) => void
+  /** `mergeKey`: consecutive edits with the same key (typing into one field) become one undo step. */
+  updateNode: (id: string, data: Partial<GSSNode>, mergeKey?: string) => void
   addConnection: (conn: GSSConnection) => void
-  removeConnection: (fromNode: string, toNode: string) => void
+  /** Without `fromPort` removes every connection between the two nodes. */
+  removeConnection: (fromNode: string, toNode: string, fromPort?: number) => void
   setName: (name: string) => void
   markClean: () => void
   newGraph: () => void
@@ -28,115 +33,104 @@ interface GraphStore {
   redo: () => void
 }
 
-const DEFAULT_GRAPH: GSSGraph = {
-  version: GSS_FORMAT_VERSION,
-  tick_spec_version: TICK_SPEC_VERSION,
-  name: 'Untitled Economy',
-  description: '',
-  created_at: new Date().toISOString(),
-  modified_at: new Date().toISOString(),
-  simulation_seed: 42,
-  nodes: [],
-  connections: [],
+function makeDefaultGraph(): GSSGraph {
+  const now = new Date().toISOString()
+  return {
+    version: GSS_FORMAT_VERSION,
+    tick_spec_version: TICK_SPEC_VERSION,
+    name: 'Untitled Economy',
+    description: '',
+    created_at: now,
+    modified_at: now,
+    // "Default seed" z nastavení (0 = při každém běhu náhodný seed)
+    simulation_seed: Math.max(0, Math.floor(getSettings().defaultSeed || 0)),
+    nodes: [],
+    connections: [],
+  }
 }
 
-export const useGraphStore = create<GraphStore>((set) => ({
-  graph: { ...DEFAULT_GRAPH },
-  graphVersion: 0,
-  isDirty: false,
-  canUndo: false,
-  canRedo: false,
+const initialGraph = makeDefaultGraph()
+// Výchozí stav musí být i v historii — jinak první undo po první úpravě nemělo kam se vrátit.
+CommandManager.reset(initialGraph)
 
-  setGraph: (graph) => {
-    CommandManager.reset(graph)
-    set((s) => ({ graph, graphVersion: s.graphVersion + 1, isDirty: false, canUndo: false, canRedo: false }))
-  },
+export const useGraphStore = create<GraphStore>((set) => {
+  /** Applies a mutation, records it in the undo history and marks the graph dirty. */
+  const mutate = (s: GraphStore, patch: Partial<GSSGraph>, mergeKey?: string): Partial<GraphStore> => {
+    const g: GSSGraph = { ...s.graph, ...patch, modified_at: new Date().toISOString() }
+    CommandManager.push(g, mergeKey)
+    return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
+  }
 
-  setNodes: (nodes) =>
-    set((s) => {
-      const g = { ...s.graph, nodes, modified_at: new Date().toISOString() }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+  return {
+    graph: initialGraph,
+    graphVersion: 0,
+    isDirty: false,
+    canUndo: false,
+    canRedo: false,
 
-  setConnections: (connections) =>
-    set((s) => {
-      const g = { ...s.graph, connections, modified_at: new Date().toISOString() }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+    setGraph: (graph) => {
+      const g = normalizeGraph(graph)
+      CommandManager.reset(g)
+      set((s) => ({ graph: g, graphVersion: s.graphVersion + 1, isDirty: false, canUndo: false, canRedo: false }))
+    },
 
-  addNode: (node) =>
-    set((s) => {
-      const g = { ...s.graph, nodes: [...s.graph.nodes, node], modified_at: new Date().toISOString() }
-      CommandManager.push(g)
-      return { graph: g, graphVersion: s.graphVersion + 1, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+    setNodes: (nodes) => set((s) => mutate(s, { nodes })),
 
-  removeNode: (id) =>
-    set((s) => {
-      const g = {
-        ...s.graph,
+    setConnections: (connections) => set((s) => mutate(s, { connections })),
+
+    addNode: (node) => set((s) => mutate(s, { nodes: [...s.graph.nodes, node] })),
+
+    removeNode: (id) =>
+      set((s) => mutate(s, {
         nodes: s.graph.nodes.filter((n) => n.id !== id),
         connections: s.graph.connections.filter((c) => c.from_node !== id && c.to_node !== id),
-        modified_at: new Date().toISOString(),
-      }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+      })),
 
-  updateNode: (id, data) =>
-    set((s) => {
-      const g = {
-        ...s.graph,
+    updateNode: (id, data, mergeKey) =>
+      set((s) => mutate(s, {
         nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, ...data } : n)),
-        modified_at: new Date().toISOString(),
-      }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
+      }, mergeKey)),
+
+    addConnection: (conn) => set((s) => {
+      // Duplicitní spojení (stejné uzly i port) by zdvojilo tok — ignorovat.
+      const exists = s.graph.connections.some((c) =>
+        c.from_node === conn.from_node && c.to_node === conn.to_node && c.from_port === conn.from_port)
+      if (exists || conn.from_node === conn.to_node) return s
+      return mutate(s, { connections: [...s.graph.connections, conn] })
     }),
 
-  addConnection: (conn) =>
-    set((s) => {
-      const g = { ...s.graph, connections: [...s.graph.connections, conn], modified_at: new Date().toISOString() }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+    removeConnection: (fromNode, toNode, fromPort) =>
+      set((s) => mutate(s, {
+        connections: s.graph.connections.filter((c) =>
+          !(c.from_node === fromNode && c.to_node === toNode && (fromPort === undefined || c.from_port === fromPort))),
+      })),
 
-  removeConnection: (fromNode, toNode) =>
-    set((s) => {
-      const g = {
-        ...s.graph,
-        connections: s.graph.connections.filter((c) => !(c.from_node === fromNode && c.to_node === toNode)),
-        modified_at: new Date().toISOString(),
-      }
-      CommandManager.push(g)
-      return { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
-    }),
+    // Přejmenování je teď také krok historie (dřív ho undo "přeskočilo" a
+    // obnovilo starý název z dřívějšího snapshotu).
+    setName: (name) => set((s) => mutate(s, { name }, 'graph:name')),
 
-  setName: (name) =>
-    set((s) => ({
-      graph: { ...s.graph, name, modified_at: new Date().toISOString() },
-      isDirty: true,
-    })),
+    markClean: () => set({ isDirty: false }),
 
-  markClean: () => set({ isDirty: false }),
+    newGraph: () => {
+      const g = makeDefaultGraph()
+      CommandManager.reset(g)
+      set((s) => ({ graph: g, graphVersion: s.graphVersion + 1, isDirty: false, canUndo: false, canRedo: false }))
+    },
 
-  newGraph: () => {
-    const g = { ...DEFAULT_GRAPH, created_at: new Date().toISOString(), modified_at: new Date().toISOString() }
-    CommandManager.reset(g)
-    set((s) => ({ graph: g, graphVersion: s.graphVersion + 1, isDirty: false, canUndo: false, canRedo: false }))
-  },
+    undo: () =>
+      set((s) => {
+        const g = CommandManager.undo()
+        return g
+          ? { graph: g, graphVersion: s.graphVersion + 1, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
+          : s
+      }),
 
-  undo: () =>
-    set((s) => {
-      const g = CommandManager.undo()
-      return g ? { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() } : s
-    }),
-
-  redo: () =>
-    set((s) => {
-      const g = CommandManager.redo()
-      return g ? { graph: g, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() } : s
-    }),
-}))
+    redo: () =>
+      set((s) => {
+        const g = CommandManager.redo()
+        return g
+          ? { graph: g, graphVersion: s.graphVersion + 1, isDirty: true, canUndo: CommandManager.canUndo(), canRedo: CommandManager.canRedo() }
+          : s
+      }),
+  }
+})

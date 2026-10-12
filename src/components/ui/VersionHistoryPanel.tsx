@@ -2,19 +2,34 @@
 
 import { useState } from 'react'
 import { loadHistory, saveSnapshot, clearHistory } from '../../hooks/useVersionHistory'
+import type { VersionSnapshot } from '../../hooks/useVersionHistory'
 import { useGraphStore } from '../../store/graphStore'
+import { useSimulationStore } from '../../store/simulationStore'
+import { ConfirmDialog } from './ConfirmDialog'
+
+type PendingAction =
+  | { kind: 'restore'; snap: VersionSnapshot }
+  | { kind: 'clear' }
 
 export function VersionHistoryPanel() {
   const [snapshots, setSnapshots] = useState(() => loadHistory())
   const { graph, setGraph }       = useGraphStore()
+  const resetSim                  = useSimulationStore((s) => s.reset)
+  // Vlastní ConfirmDialog místo nativního confirm() (stejně jako zbytek UI, audit R-17)
+  const [pending, setPending]     = useState<PendingAction | null>(null)
 
   function refresh() { setSnapshots(loadHistory()) }
 
-  function restore(idx: number) {
-    const snap = snapshots[idx]
-    if (!snap) return
-    if (!confirm(`Restore "${snap.label}" from ${new Date(snap.timestamp).toLocaleString()}? Current graph will be replaced.`)) return
-    setGraph(snap.graph)
+  function confirmPending() {
+    if (!pending) return
+    if (pending.kind === 'restore') {
+      setGraph(pending.snap.graph)
+      resetSim()
+    } else {
+      clearHistory()
+      refresh()
+    }
+    setPending(null)
   }
 
   function saveCurrent() {
@@ -36,7 +51,7 @@ export function VersionHistoryPanel() {
           </button>
           {snapshots.length > 0 && (
             <button
-              onClick={() => { if (confirm('Clear all snapshots?')) { clearHistory(); refresh() } }}
+              onClick={() => setPending({ kind: 'clear' })}
               className="px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 text-white/40 rounded transition-colors"
             >
               Clear All
@@ -49,17 +64,17 @@ export function VersionHistoryPanel() {
       {snapshots.length === 0 ? (
         <div className="text-center py-8 text-white/30 text-sm">
           <div className="text-2xl mb-2">🕐</div>
-          No snapshots yet. Click "Save Snapshot" or edit a graph — auto-snapshots save every 5 minutes.
+          No snapshots yet. Click "Save Snapshot" — while you edit, an automatic snapshot is also taken every 5 minutes.
         </div>
       ) : (
         <div className="flex flex-col gap-1">
           {snapshots.map((snap, i) => {
             const date = new Date(snap.timestamp)
-            const nodeCount = snap.graph.nodes.length
-            const edgeCount = snap.graph.connections.length
+            const nodeCount = snap.graph.nodes?.length ?? 0
+            const edgeCount = snap.graph.connections?.length ?? 0
             return (
               <div
-                key={snap.timestamp}
+                key={`${snap.timestamp}-${i}`}
                 className="flex items-center gap-3 p-2.5 rounded-lg border border-border bg-card hover:border-white/20 transition-colors group"
               >
                 <div className="flex-1 min-w-0">
@@ -73,8 +88,8 @@ export function VersionHistoryPanel() {
                   </div>
                 </div>
                 <button
-                  onClick={() => restore(i)}
-                  className="px-2 py-1 text-[10px] bg-white/5 hover:bg-accent/20 hover:text-accent text-white/40 rounded opacity-0 group-hover:opacity-100 transition-all"
+                  onClick={() => setPending({ kind: 'restore', snap })}
+                  className="px-2 py-1 text-[10px] bg-white/5 hover:bg-accent/20 hover:text-accent text-white/40 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"
                 >
                   Restore
                 </button>
@@ -87,6 +102,17 @@ export function VersionHistoryPanel() {
       <p className="text-[9px] text-white/20 text-center">
         Up to 20 snapshots stored locally. Snapshots persist across sessions.
       </p>
+
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending?.kind === 'clear' ? 'Clear all snapshots?' : 'Restore this snapshot?'}
+        message={pending?.kind === 'restore'
+          ? `"${pending.snap.label}" from ${new Date(pending.snap.timestamp).toLocaleString()} will replace the current graph.`
+          : 'All saved snapshots will be deleted. This cannot be undone.'}
+        confirmLabel={pending?.kind === 'clear' ? 'Clear all' : 'Restore'}
+        onConfirm={confirmPending}
+        onCancel={() => setPending(null)}
+      />
     </div>
   )
 }

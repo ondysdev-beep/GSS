@@ -31,7 +31,12 @@ function tokenize(expr: string): Token[] {
     if (/[0-9.]/.test(c)) {
       let j = i
       while (j < expr.length && /[0-9.]/.test(expr[j])) j++
-      tokens.push({ type: 'NUMBER', value: expr.slice(i, j), position: i })
+      const value = expr.slice(i, j)
+      // "1.2.3" nebo samotná "." dřív tiše prošly (parseFloat → 1.2 / NaN).
+      if (!/^(\d+\.?\d*|\.\d+)$/.test(value)) {
+        throw { message: `Invalid number "${value}"`, position: i } as FormulaError
+      }
+      tokens.push({ type: 'NUMBER', value, position: i })
       i = j
       continue
     }
@@ -55,11 +60,23 @@ function tokenize(expr: string): Token[] {
 //                     term := unary (('*' | '/') unary)*
 //                     unary := '-' unary | primary
 //                     primary := NUMBER | IDENT | '(' expr ')'
+// Limity proti záměrně škodlivému vstupu ze sdílených .gss souborů —
+// "((((((…" nebo "------…" by jinak rekurzivní sestup přetekl zásobník.
+const MAX_EXPRESSION_LENGTH = 2000
+const MAX_NESTING = 100
+
 class Parser {
   private tokens: Token[]
   private pos = 0
+  private depth = 0
 
   constructor(tokens: Token[]) { this.tokens = tokens }
+
+  private enter(position: number): void {
+    if (++this.depth > MAX_NESTING) {
+      throw { message: `Expression is nested too deeply (max ${MAX_NESTING} levels)`, position } as FormulaError
+    }
+  }
 
   private peek(): Token { return this.tokens[this.pos] }
   private next(): Token { return this.tokens[this.pos++] }
@@ -98,8 +115,10 @@ class Parser {
 
   private unary(vars: Record<string, number>): number {
     if (this.peek().type === 'OP' && this.peek().value === '-') {
-      this.next()
-      return -this.unary(vars)
+      this.enter(this.next().position)
+      const val = -this.unary(vars)
+      this.depth--
+      return val
     }
     return this.primary(vars)
   }
@@ -120,28 +139,40 @@ class Parser {
       return typeof v === 'number' ? v : 0
     }
     if (t.type === 'LPAREN') {
-      this.next()
+      this.enter(this.next().position)
       const val = this.expr(vars)
       this.expect('RPAREN')
+      this.depth--
       return val
     }
     throw { message: `Unexpected token "${t.value || 'end of expression'}"`, position: t.position } as FormulaError
   }
 }
 
+function _parse(expression: string, variables: Record<string, number>): number {
+  if (expression.length > MAX_EXPRESSION_LENGTH) {
+    throw { message: `Expression is too long (max ${MAX_EXPRESSION_LENGTH} characters)`, position: 0 } as FormulaError
+  }
+  return new Parser(tokenize(expression)).parseExpr(variables)
+}
+
 /** Vyhodnotí výraz proti dané sadě proměnných. Vyhazuje FormulaError při chybě. */
 export function evaluateFormula(expression: string, variables: Record<string, number>): number {
-  const tokens = tokenize(expression)
-  const parser = new Parser(tokens)
-  const result = parser.parseExpr(variables)
+  const result = _parse(expression, variables)
   if (!isFinite(result)) throw { message: 'Result is not a finite number (division by zero?)', position: 0 } as FormulaError
   return result
 }
 
-/** Ověří, že výraz je syntakticky validní, aniž by vyžadoval skutečné proměnné (pro GraphValidator). */
+/**
+ * Ověří, že výraz je syntakticky validní, aniž by vyžadoval skutečné proměnné
+ * (pro GraphValidator). Jde čistě o SYNTAXI — dřív se výraz zkušebně
+ * vyhodnotil se všemi proměnnými = 1, takže platný výraz jako
+ * "gold / (tick - 1)" padal na "dělení nulou" a validátor ho chybně
+ * označil jako ERROR (a zablokoval simulaci).
+ */
 export function validateFormulaSyntax(expression: string): FormulaError | null {
   try {
-    evaluateFormula(expression, new Proxy({}, { get: () => 1 }))
+    _parse(expression, new Proxy({}, { get: () => 1 }))
     return null
   } catch (err) {
     return err as FormulaError

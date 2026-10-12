@@ -13,11 +13,15 @@
 // manuální krok mimo tuto session (vyžaduje npm účet vlastníka projektu).
 
 // ── Simulace ──────────────────────────────────────────────────────────────
-export { initState, simulateTick, getTickSpecDescription, getSemanticsNotes, TICK_SPEC_VERSION } from './TickEngine'
+export {
+  initState, simulateTick, evaluateGates, applyInitialOverrides,
+  getTickSpecDescription, getSemanticsNotes, TICK_SPEC_VERSION,
+} from './TickEngine'
 export { createRNG, SimRNG } from './SimRNG'
 export type { RNGInstance } from './SimRNG'
 
-// ── Validace ──────────────────────────────────────────────────────────────
+// ── Načtení a validace ──────────────────────────────────────────────────────
+export { normalizeGraph, looksLikeGraph, GraphFormatError } from './GraphNormalizer'
 export { validate, hasErrors, hasWarnings, formatIssue } from './GraphValidator'
 
 // ── Bezpečný vyhodnocovač výrazů (Formula uzel) ────────────────────────────
@@ -25,7 +29,10 @@ export { evaluateFormula, validateFormulaSyntax } from './FormulaEvaluator'
 export type { FormulaError } from './FormulaEvaluator'
 
 // ── Scénáře a analýza ───────────────────────────────────────────────────────
-export { runScenario, buildSimulationContext, reportToCSV } from './ScenarioRunner'
+export {
+  runScenario, buildSimulationContext, reportToCSV, reportToLongCSV,
+  validateScenarioTiming, resolveSeed,
+} from './ScenarioRunner'
 export { runMonteCarlo } from './MonteCarloSimulator'
 export { runSweep } from './ParameterSweeper'
 export { compareReports } from './ScenarioComparer'

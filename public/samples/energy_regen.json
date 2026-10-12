@@ -1,8 +1,12 @@
 {
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Energy Regen",
+	"description": "Energy regeneration vs. action cost — classic mobile stamina system.",
 	"nodes": [
-		{"id": "regen", "type": 1, "position": {"x": 50, "y": 150}, "data": {"resource": "energy", "rate": 2.0}},
-		{"id": "energy_pool", "type": 0, "position": {"x": 300, "y": 150}, "data": {"resource": "energy", "capacity": 100}},
-		{"id": "action_cost", "type": 3, "position": {"x": 550, "y": 150}, "data": {"resource": "energy", "rate": 5.0}}
+		{"id": "regen", "type": 1, "label": "Regen", "position": {"x": 50, "y": 150}, "data": {"resource": "energy", "rate": 2}},
+		{"id": "energy_pool", "type": 0, "label": "Energy Pool", "position": {"x": 300, "y": 150}, "data": {"resource": "energy", "capacity": 100, "initial_amount": 100}},
+		{"id": "action_cost", "type": 3, "label": "Action Cost", "position": {"x": 550, "y": 150}, "data": {"resource": "energy", "rate": 5}}
 	],
 	"connections": [
 		{"from_node": "regen", "from_port": 0, "to_node": "energy_pool", "to_port": 0},

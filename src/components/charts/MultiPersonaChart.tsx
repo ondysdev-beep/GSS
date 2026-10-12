@@ -13,6 +13,9 @@ import {
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
 import { runAllPersonaSimulations, type PersonaRunResult } from '../../core/PlayerPersona'
+import { validate, hasErrors } from '../../core/GraphValidator'
+import { useLicenseStore } from '../../store/licenseStore'
+import { FREE_TIER_LIMITS } from '../../types/simulation'
 
 const PERSONA_COLORS: Record<string, string> = {
   Casual: '#3b82f6',
@@ -25,11 +28,26 @@ export function MultiPersonaChart() {
   const scenario = useSimulationStore((s) => s.scenario)
   const [results, setResults] = useState<PersonaRunResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
+  const isPro = useLicenseStore((s) => s.license?.isPro ?? false)
 
-  function run() {
+  async function run() {
+    if (running) return
+    // Stejná pravidla jako hlavní běh (useSimulation): validní graf a limity
+    // FREE verze — dřív je tenhle panel obcházel.
+    if (hasErrors(validate(graph))) {
+      setError('Graph contains errors. Fix them (see Issues in the Editor tab) before running.')
+      return
+    }
+    if (!isPro && graph.nodes.length > FREE_TIER_LIMITS.MAX_NODES) {
+      setError(`Free tier: max ${FREE_TIER_LIMITS.MAX_NODES} nodes. Upgrade to GSS PRO for unlimited nodes.`)
+      return
+    }
+    setRunning(true)
+    await new Promise<void>((r) => setTimeout(r, 0))
     try {
       const r = runAllPersonaSimulations(graph, {
-        duration: scenario.duration,
+        duration: isPro ? scenario.duration : Math.min(scenario.duration, FREE_TIER_LIMITS.MAX_DURATION_SECONDS),
         dt: scenario.dt,
         sampling_interval: scenario.sampling_interval,
         seed: scenario.seed_override > 0 ? scenario.seed_override : undefined,
@@ -37,8 +55,10 @@ export function MultiPersonaChart() {
       setResults(r)
       setError(null)
     } catch (err) {
-      setError(`Failed to run simulation: ${err}`)
+      setError(`Failed to run simulation: ${err instanceof Error ? err.message : String(err)}`)
       setResults(null)
+    } finally {
+      setRunning(false)
     }
   }
 
@@ -51,9 +71,10 @@ export function MultiPersonaChart() {
       <div className="flex items-center justify-between">
         <button
           onClick={run}
-          className="px-3 py-1 text-[10px] bg-accent/20 hover:bg-accent/30 text-accent rounded transition-colors"
+          disabled={running}
+          className="px-3 py-1 text-[10px] bg-accent/20 hover:bg-accent/30 text-accent rounded transition-colors disabled:opacity-50"
         >
-          {results ? '↺ Recompute' : '▶ Run persona simulation'}
+          {running ? '⏳ Running…' : results ? '↺ Recompute' : '▶ Run persona simulation'}
         </button>
         {results && (
           <div className="flex gap-3 text-[10px]">

@@ -2,6 +2,7 @@
 // A/B porovnání dvou RunReport — delty, growth rates, winner summary
 
 import { TICK_SPEC_VERSION } from './TickEngine'
+import { csvCell } from './ScenarioRunner'
 import type { RunReport, CompareReport } from '../types/simulation'
 
 export function compareReports(reportA: RunReport, reportB: RunReport): CompareReport {
@@ -24,7 +25,7 @@ export function compareReports(reportA: RunReport, reportB: RunReport): CompareR
     const fa = finalA[pid] ?? 0
     const fb = finalB[pid] ?? 0
     const delta = fb - fa
-    const pct   = Math.abs(fa) > 0.0001 ? (delta / fa * 100) : 0
+    const pct   = Math.abs(fa) > 0.0001 ? (delta / Math.abs(fa) * 100) : 0
 
     const ta = tttA[pid] ?? -1
     const tb = tttB[pid] ?? -1
@@ -108,7 +109,7 @@ export function compareToCSV(report: CompareReport): string {
   const header = 'pool,final_a,final_b,delta,pct_change,ttt_a,ttt_b,ttt_delta'
   const rows = pids.map((pid) => {
     const d = report.pool_diffs[pid]
-    return `${pid},${d.final_a.toFixed(4)},${d.final_b.toFixed(4)},${d.delta.toFixed(4)},${d.pct_change.toFixed(2)},${d.ttt_a.toFixed(1)},${d.ttt_b.toFixed(1)},${d.ttt_delta === Infinity ? 'Inf' : d.ttt_delta === -Infinity ? '-Inf' : d.ttt_delta.toFixed(1)}`
+    return `${csvCell(pid)},${d.final_a.toFixed(4)},${d.final_b.toFixed(4)},${d.delta.toFixed(4)},${d.pct_change.toFixed(2)},${d.ttt_a.toFixed(1)},${d.ttt_b.toFixed(1)},${d.ttt_delta === Infinity ? 'Inf' : d.ttt_delta === -Infinity ? '-Inf' : d.ttt_delta.toFixed(1)}`
   })
   return [header, ...rows].join('\n')
 }

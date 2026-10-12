@@ -31,16 +31,18 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
-    confirmRef.current?.focus()
+    // U destruktivních akcí má fokus "Cancel" — Enter tak omylem nic nezahodí.
+    ;(danger ? cancelRef : confirmRef).current?.focus()
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onCancel()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onCancel])
+  }, [open, onCancel, danger])
 
   if (!open) return null
 
@@ -65,6 +67,7 @@ export function ConfirmDialog({
         </p>
         <div className="flex gap-2 justify-center">
           <button
+            ref={cancelRef}
             onClick={onCancel}
             className="px-3 py-1.5 text-xs rounded border border-border text-white/70 hover:text-white hover:bg-border transition-colors"
           >

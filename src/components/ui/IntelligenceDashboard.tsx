@@ -62,21 +62,28 @@ export function IntelligenceDashboard() {
     const converters = graph.nodes
       .filter((n) => n.type === 2)
       .map((n) => {
-        const d = n.data as { input_resource: string; output_resource: string; input_amount: number; output_amount: number }
+        const d = (n.data ?? {}) as { input_resource?: string; output_resource?: string; input_amount?: number; output_amount?: number }
         return { id: n.id, input: d.input_resource ?? '', output: d.output_resource ?? '', input_amount: d.input_amount ?? 1, output_amount: d.output_amount ?? 1 }
       })
-    const resources = [...new Set(graph.nodes.filter((n) => n.type === 0).map((n) => (n.data as { resource: string }).resource ?? n.id))]
+    // Každá konverzní smyčka prochází vstupem některého converteru — hledat
+    // jen od resources v poolech (jako dřív) přehlédlo smyčky mimo pooly.
+    const resources = [...new Set(converters.map((c) => c.input).filter(Boolean))]
     return discoverConversionLoops(converters, resources)
   }, [graph])
 
   // RNG Analysis z chance_stats simulace
   const rngAnalysis = useMemo(() => {
     if (!reportA) return null
-    const entries = Object.entries(reportA.chance_stats)
+    // Bez jediného hodu nejde o férovosti nic říct (dřív 0 hodů = "Unfair").
+    // Očekávaná šance se bere z grafu — pokud se uzel mezitím změnil nebo
+    // smazal, statistika by porovnávala neporovnatelné, takže se přeskočí.
+    const entries = Object.entries(reportA.chance_stats).filter(([id, stat]) =>
+      stat.total > 0 && graph.nodes.some((n) => n.id === id))
     if (entries.length === 0) return null
     return entries.map(([id, stat]) => {
       const node = graph.nodes.find((n) => n.id === id)
-      const expected = node ? ((node.data as { success_chance?: number }).success_chance ?? 50) : 50
+      const sc = (node?.data as { success_chance?: number } | undefined)?.success_chance
+      const expected = typeof sc === 'number' ? sc : 50
       const actual = stat.total > 0 ? (stat.successes / stat.total) * 100 : 0
       const deviation = actual - expected
       const absDeviation = Math.abs(deviation)
@@ -92,9 +99,17 @@ export function IntelligenceDashboard() {
   const bottleneckReport = useMemo(() => {
     if (!reportA || reportA.time_series.length === 0) return null
     const lastFrame = reportA.time_series[reportA.time_series.length - 1]
-    const pools: Record<string, { amount: number; capacity: number }> = {}
+    // Skutečná kapacita z grafu — dřív se předávalo maximum dosažené hodnoty,
+    // takže každý rostoucí pool vyšel jako "FULL" (falešný saturated_pool).
+    const pools: Record<string, { amount: number; capacity: number; resource?: string }> = {}
     for (const [pid, amount] of Object.entries(lastFrame.pools)) {
-      pools[pid] = { amount, capacity: reportA.summary.max_values[pid] ?? 0 }
+      const node = graph.nodes.find((n) => n.id === pid)
+      const d = (node?.data ?? {}) as { capacity?: unknown; resource?: unknown }
+      pools[pid] = {
+        amount,
+        capacity: typeof d.capacity === 'number' ? d.capacity : 100,
+        resource: typeof d.resource === 'string' ? d.resource : undefined,
+      }
     }
     const gateStates: Record<string, boolean> = lastFrame.gates
     return findBottlenecks(graph, pools, gateStates)

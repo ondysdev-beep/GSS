@@ -1,6 +1,11 @@
 // GraphEditor.tsx — ReactFlow canvas wired to graphStore
 // Handles: node drag, connection add/remove, context menus, live overlays,
 //          drag-drop from palette, Ctrl+D, heatmap mode, fullscreen
+//
+// graphStore je jediný zdroj pravdy: kdykoli se změní `graph.nodes` /
+// `graph.connections` (inspektor, undo/redo, načtení, přidání uzlu…), plátno
+// se z nich přepočítá. Dřív se plátno synchronizovalo jen při `graphVersion`,
+// takže úpravy v inspektoru ani Undo/Redo nebyly na plátně vidět.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent } from 'react'
@@ -9,7 +14,6 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
-  addEdge,
   useNodesState,
   useEdgesState,
   ReactFlowProvider,
@@ -21,14 +25,20 @@ import type {
   ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { customNodeTypes, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from './NodeTypes'
+import { customNodeTypes, CHANCE_FAILURE_HANDLE, CHANCE_SUCCESS_HANDLE } from './NodeTypes'
+import {
+  NODE_TYPE_COLORS, NODE_TYPE_LABELS, NODE_TYPE_NAMES, NODE_TYPE_ORDER,
+  createNode, duplicateNode, isKnownNodeType,
+} from './nodeCatalog'
 import { customEdgeTypes } from './FlowEdge'
 import type { FlowEdgeData } from './FlowEdge'
 import { NodeInspector } from './NodeInspector'
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { NodeType } from '../../types/graph'
 import type { GSSNode, GSSConnection } from '../../types/graph'
+import type { TimeSeriesFrame } from '../../types/simulation'
 
 const GSS_TYPE_TO_RF: Record<number, string> = {
   0: 'pool', 1: 'source', 2: 'converter', 3: 'drain',
@@ -36,40 +46,61 @@ const GSS_TYPE_TO_RF: Record<number, string> = {
   8: 'timer', 9: 'formula', 10: 'player_action',
 }
 
-const DEFAULT_DATA: Record<number, object> = {
-  0: { resource: 'Gold', capacity: 100, initial_amount: 0 },
-  1: { resource: 'Gold', rate: 10 },
-  2: { input_resource: 'Gold', input_amount: 5, output_resource: 'XP', output_amount: 1, cycle_time: 1 },
-  3: { resource: 'Gold', rate: 5 },
-  4: { variable: 'pool1', operator: 0, value: 50 },
-  5: { success_chance: 50 },
-  7: { split_mode: 0, output_count: 2, weights: '1,1' },
+/** Keys the editor adds to RF node data during replay — preserved across store syncs. */
+const OVERLAY_KEYS = ['fillPct', 'liveValue', 'isActive'] as const
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 }
 
-function gssNodesToRF(nodes: GSSNode[]): Node[] {
-  return nodes.map((n) => ({
+function gssNodeToRF(n: GSSNode, prev: Node | undefined): Node {
+  const overlay: Record<string, unknown> = {}
+  for (const key of OVERLAY_KEYS) {
+    if (prev?.data?.[key] !== undefined) overlay[key] = prev.data[key]
+  }
+  return {
+    ...(prev ?? {}),
     id: n.id,
     type: GSS_TYPE_TO_RF[n.type] ?? 'pool',
     position: n.position,
-    data: { gssType: n.type, label: n.label, data: n.data },
-  }))
+    data: { ...overlay, gssType: n.type, label: n.label, data: n.data ?? {} },
+  }
 }
 
-function gssConnsToRF(
+/** Stable edge ID: from/port/to, with a suffix only for duplicate connections in imported files. */
+function edgeIds(conns: GSSConnection[]): string[] {
+  const seen = new Map<string, number>()
+  return conns.map((c) => {
+    const base = `e-${c.from_node}-${c.from_port}-${c.to_node}`
+    const n = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    return n === 1 ? base : `${base}-${n}`
+  })
+}
+
+function buildEdges(
   conns: GSSConnection[],
-  flowData?: Map<string, FlowEdgeData>,
+  nodes: GSSNode[],
+  edgeStyle: FlowEdgeData['edgeStyle'],
+  flow: Map<string, FlowEdgeData> | null,
+  prevEdges: Edge[],
 ): Edge[] {
+  const typeById = new Map(nodes.map((n) => [n.id, n.type]))
+  const selected = new Set(prevEdges.filter((e) => e.selected).map((e) => e.id))
+  const ids = edgeIds(conns)
   return conns.map((c, i) => {
-    const edgeId = `e-${c.from_node}-${c.to_node}-${i}`
-    const fd = flowData?.get(edgeId)
+    const id = ids[i]
+    const isChance = typeById.get(c.from_node) === NodeType.CHANCE
     return {
-      id: edgeId,
+      id,
       source: c.from_node,
       target: c.to_node,
-      sourceHandle: null,
+      sourceHandle: isChance ? (c.from_port === 1 ? CHANCE_FAILURE_HANDLE : CHANCE_SUCCESS_HANDLE) : null,
       targetHandle: null,
       type: 'flow',
-      data: fd ?? { animated: false },
+      selected: selected.has(id),
+      data: { ...(flow?.get(id) ?? { animated: false }), edgeStyle, fromPort: c.from_port },
     }
   })
 }
@@ -77,49 +108,56 @@ function gssConnsToRF(
 function computeFlowData(
   conns: GSSConnection[],
   nodes: GSSNode[],
-  frame: import('../../types/simulation').TimeSeriesFrame | null,
-  prevFrame: import('../../types/simulation').TimeSeriesFrame | null,
+  frame: TimeSeriesFrame | null,
+  prevFrame: TimeSeriesFrame | null,
   dt: number,
 ): Map<string, FlowEdgeData> {
   const map = new Map<string, FlowEdgeData>()
   if (!frame) return map
 
-  // Build node type lookup
   const nodeMap = new Map<string, GSSNode>()
   for (const n of nodes) nodeMap.set(n.id, n)
+  const ids = edgeIds(conns)
 
   // Estimate per-edge flow rates from node data and pool deltas
   const edgeFlows: number[] = []
 
   for (let i = 0; i < conns.length; i++) {
     const c = conns[i]
-    const edgeId = `e-${c.from_node}-${c.to_node}-${i}`
     const fromNode = nodeMap.get(c.from_node)
     const isGateBlocked = frame.gates[c.to_node] === false || frame.gates[c.from_node] === false
 
     let flowRate = 0
     if (!isGateBlocked && fromNode) {
-      const data = fromNode.data as unknown as Record<string, number>
-      if (fromNode.type === 1) { // SOURCE
-        flowRate = (data.rate ?? 0) * dt
-      } else if (fromNode.type === 3) { // DRAIN
-        flowRate = (data.rate ?? 0) * dt
-      } else if (fromNode.type === 2) { // CONVERTER
-        const cycleTime = data.cycle_time ?? 1
-        flowRate = cycleTime > 0 ? (data.output_amount ?? 0) / cycleTime * dt : 0
-      } else if (fromNode.type === 0 && prevFrame) { // POOL → outflow
-        const prev = prevFrame.pools[c.from_node] ?? 0
-        const curr = frame.pools[c.from_node] ?? 0
-        const delta = prev - curr
-        if (delta > 0) flowRate = delta // outflow
+      const data = (fromNode.data ?? {}) as unknown as Record<string, number>
+      switch (fromNode.type) {
+        case NodeType.SOURCE:
+          flowRate = (data.rate ?? 0) * dt
+          break
+        case NodeType.CONVERTER: {
+          const cycleTime = data.cycle_time ?? 1
+          flowRate = cycleTime > 0 ? (data.output_amount ?? 0) / cycleTime * dt : 0
+          break
+        }
+        case NodeType.TIMER:
+          flowRate = (data.interval ?? 60) > 0 ? (data.amount ?? 0) / (data.interval ?? 60) * dt : 0
+          break
+        case NodeType.PLAYER_ACTION:
+          flowRate = (data.cadence ?? 5) > 0 ? (data.amount ?? 0) / (data.cadence ?? 5) * dt : 0
+          break
+        case NodeType.POOL:
+          if (prevFrame) {
+            const delta = (prevFrame.pools[c.from_node] ?? 0) - (frame.pools[c.from_node] ?? 0)
+            if (delta > 0) flowRate = delta // outflow
+          }
+          break
       }
     }
 
     edgeFlows.push(flowRate)
-    map.set(edgeId, { flowRate, maxFlowRate: 0, isGateBlocked, animated: true })
+    map.set(ids[i], { flowRate, maxFlowRate: 0, isGateBlocked, animated: true })
   }
 
-  // Set maxFlowRate for normalization
   const maxFlow = Math.max(0.001, ...edgeFlows)
   for (const fd of map.values()) fd.maxFlowRate = maxFlow
 
@@ -129,16 +167,14 @@ function computeFlowData(
 interface PaneCtxMenu { x: number; y: number; canvasX: number; canvasY: number }
 interface NodeCtxMenu { x: number; y: number; nodeId: string }
 
-let _nodeCounter = 1
-
 function GraphEditorInner() {
-  const { graph, graphVersion, addNode, removeNode, addConnection, removeConnection, updateNode } = useGraphStore()
+  const { graph, addNode, removeNode, addConnection, removeConnection, updateNode } = useGraphStore()
   const reportA = useSimulationStore((s) => s.reportA)
   const replayTick = useSimulationStore((s) => s.replayTick)
   const settings = useSettingsStore((s) => s.settings)
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(gssNodesToRF(graph.nodes))
-  const [edges, setEdges, onEdgesChange] = useEdgesState(gssConnsToRF(graph.connections))
+  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes.map((n) => gssNodeToRF(n, undefined)))
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[])
   const [paneCtx, setPaneCtx] = useState<PaneCtxMenu | null>(null)
   const [nodeCtx, setNodeCtx] = useState<NodeCtxMenu | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -150,23 +186,24 @@ function GraphEditorInner() {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const rfInstance = useRef<ReactFlowInstance | null>(null)
 
-  // ── Sync: full graph replace (load, new, undo) ──────────────────────────
+  // ── Sync: store → canvas nodes (keeps selection, measured size, overlays) ──
   useEffect(() => {
-    setNodes(gssNodesToRF(graph.nodes))
-    setEdges(gssConnsToRF(graph.connections))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphVersion])
+    setNodes((nds: Node[]) => {
+      const prevById = new Map(nds.map((n) => [n.id, n]))
+      return graph.nodes.map((n) => gssNodeToRF(n, prevById.get(n.id)))
+    })
+  }, [graph.nodes, setNodes])
 
-  // ── Live overlays: pool fill + live value badge ──────────────────────────
+  // ── Live overlays: pool fill + live value badge + gate state ───────────────
   useEffect(() => {
     if (!reportA?.time_series.length) {
-      setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, fillPct: undefined, liveValue: undefined } })))
+      setNodes((nds: Node[]) => nds.map((n) => ({ ...n, data: { ...n.data, fillPct: undefined, liveValue: undefined, isActive: undefined } })))
       return
     }
     const ts = reportA.time_series
     const frame = ts.find((f) => f.time >= replayTick) ?? ts[ts.length - 1]
     if (!frame) return
-    setNodes((nds) =>
+    setNodes((nds: Node[]) =>
       nds.map((n) => {
         const amount = frame.pools[n.id]
         const gate = frame.gates?.[n.id]
@@ -178,7 +215,6 @@ function GraphEditorInner() {
               ...n.data,
               fillPct: Math.min(1, Math.max(0, amount / Math.max(cap, 1))),
               liveValue: amount.toFixed(0),
-              isActive: gate,
             },
           }
         }
@@ -188,48 +224,19 @@ function GraphEditorInner() {
     )
   }, [replayTick, reportA, setNodes])
 
-  // ── Animate edges: compute flow data from time_series ─────────────────
+  // ── Edges: store connections + animated flow data from the replay frame ───
   useEffect(() => {
-    if (!reportA?.time_series.length || settings.performanceMode) {
-      setEdges(gssConnsToRF(graph.connections))
-      return
+    let flow: Map<string, FlowEdgeData> | null = null
+    if (reportA?.time_series.length && !settings.performanceMode) {
+      const ts = reportA.time_series
+      const dt = reportA.scenario?.dt ?? 1.0
+      const frameIdx = ts.findIndex((f) => f.time >= replayTick)
+      const frame = frameIdx >= 0 ? ts[frameIdx] : ts[ts.length - 1]
+      const prevFrame = frameIdx > 0 ? ts[frameIdx - 1] : null
+      flow = computeFlowData(graph.connections, graph.nodes, frame, prevFrame, dt)
     }
-    const ts = reportA.time_series
-    const dt = reportA.scenario?.dt ?? 1.0
-    const frameIdx = ts.findIndex((f) => f.time >= replayTick)
-    const frame = frameIdx >= 0 ? ts[frameIdx] : ts[ts.length - 1]
-    const prevFrame = frameIdx > 0 ? ts[frameIdx - 1] : null
-    const flowData = computeFlowData(graph.connections, graph.nodes, frame, prevFrame, dt)
-    setEdges(gssConnsToRF(graph.connections, flowData))
-  }, [replayTick, reportA, graph.connections, graph.nodes, setEdges, settings.performanceMode])
-
-  // ── Heatmap mode: glow nodes by peak activity ────────────────────────────
-  useEffect(() => {
-    if (!heatmap || !reportA?.time_series.length || settings.performanceMode) {
-      setNodes((nds) => nds.map((n) => ({ ...n, style: undefined })))
-      return
-    }
-    const maxVals: Record<string, number> = {}
-    for (const f of reportA.time_series)
-      for (const [id, v] of Object.entries(f.pools))
-        maxVals[id] = Math.max(maxVals[id] ?? 0, v)
-    const gMax = Math.max(1, ...Object.values(maxVals))
-    setNodes((nds) =>
-      nds.map((n) => {
-        const act = (maxVals[n.id] ?? 0) / gMax
-        const r = Math.round(act * 220)
-        const g = Math.round((1 - act) * 80)
-        const b = Math.round((1 - act) * 180)
-        return {
-          ...n,
-          style: {
-            filter: `drop-shadow(0 0 ${Math.round(act * 14)}px rgb(${r},${g},${b}))`,
-            opacity: 0.35 + act * 0.65,
-          },
-        }
-      }),
-    )
-  }, [heatmap, reportA, setNodes, settings.performanceMode])
+    setEdges((prev: Edge[]) => buildEdges(graph.connections, graph.nodes, settings.edgeStyle, flow, prev))
+  }, [replayTick, reportA, graph.connections, graph.nodes, setEdges, settings.performanceMode, settings.edgeStyle])
 
   // ── Search: compute matched node IDs ────────────────────────────────
   const searchMatchIds = useMemo(() => {
@@ -239,7 +246,7 @@ function GraphEditorInner() {
     for (const n of graph.nodes) {
       const label = (n.label ?? '').toLowerCase()
       const typeLabel = (NODE_TYPE_LABELS[n.type] ?? '').toLowerCase()
-      const nodeId = n.id.toLowerCase()
+      const nodeId = String(n.id).toLowerCase()
       if (label.includes(q) || typeLabel.includes(q) || nodeId.includes(q)) {
         matched.add(n.id)
       }
@@ -247,63 +254,98 @@ function GraphEditorInner() {
     return matched
   }, [searchQuery, graph.nodes])
 
-  // Apply search highlighting to nodes
+  // ── Node styling: search highlight has priority over heatmap glow ─────────
+  // (Dřív dva efekty přepisovaly `style` navzájem podle pořadí spuštění.)
   useEffect(() => {
-    if (!searchMatchIds) {
-      setNodes((nds) => nds.map((n) => ({ ...n, style: heatmap ? n.style : undefined })))
-      return
+    let heat: ((id: string) => Record<string, unknown>) | null = null
+    if (heatmap && reportA?.time_series.length && !settings.performanceMode) {
+      const maxVals: Record<string, number> = {}
+      for (const f of reportA.time_series)
+        for (const [id, v] of Object.entries(f.pools))
+          maxVals[id] = Math.max(maxVals[id] ?? 0, v)
+      const gMax = Math.max(1, ...Object.values(maxVals))
+      heat = (id) => {
+        const act = (maxVals[id] ?? 0) / gMax
+        const r = Math.round(act * 220)
+        const g = Math.round((1 - act) * 80)
+        const b = Math.round((1 - act) * 180)
+        return { filter: `drop-shadow(0 0 ${Math.round(act * 14)}px rgb(${r},${g},${b}))`, opacity: 0.35 + act * 0.65 }
+      }
     }
-    setNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        style: searchMatchIds.has(n.id)
-          ? { filter: 'drop-shadow(0 0 8px #3b82f6)', zIndex: 10 }
-          : { opacity: 0.25, filter: 'grayscale(0.8)' },
-      })),
+    setNodes((nds: Node[]) =>
+      nds.map((n) => {
+        let style: Record<string, unknown> | undefined
+        if (searchMatchIds) {
+          style = searchMatchIds.has(n.id)
+            ? { filter: 'drop-shadow(0 0 8px #3b82f6)', zIndex: 10 }
+            : { opacity: 0.25, filter: 'grayscale(0.8)' }
+        } else if (heat) {
+          style = heat(n.id)
+        }
+        return { ...n, style }
+      }),
     )
-  }, [searchMatchIds, setNodes, heatmap])
+  }, [heatmap, reportA, searchMatchIds, settings.performanceMode, setNodes, graph.nodes])
 
-  // ── Ctrl+D / Ctrl+F keyboard shortcuts ───────────────────────────────
+  // ── Fit view ──────────────────────────────────────────────────────────────
+  const fitView = useCallback(() => rfInstance.current?.fitView({ padding: 0.2, duration: 300 }), [])
+
+  const duplicateById = useCallback((nodeId: string) => {
+    const src = graph.nodes.find((n) => n.id === nodeId)
+    if (src) addNode(duplicateNode(src))
+  }, [graph.nodes, addNode])
+
+  // ── Keyboard shortcuts (never while typing into a field) ─────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedId) {
-        e.preventDefault()
-        const src = graph.nodes.find((n) => n.id === selectedId)
-        if (!src) return
-        const id = `node_${Date.now()}_${_nodeCounter++}`
-        addNode({ ...src, id, label: `${src.label} (copy)`, position: { x: src.position.x + 40, y: src.position.y + 40 } })
+      if (e.key === 'Escape') {
+        if (showSearch) { setShowSearch(false); setSearchQuery('') }
+        else if (fullscreen) setFullscreen(false)
+        setPaneCtx(null)
+        setNodeCtx(null)
+        return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setShowSearch(true)
         setTimeout(() => searchInputRef.current?.focus(), 50)
+        return
       }
-      if (e.key === 'Escape' && showSearch) {
-        setShowSearch(false)
-        setSearchQuery('')
+      if (isTypingTarget(e.target)) return
+      if (mod && e.key.toLowerCase() === 'd' && selectedId) {
+        e.preventDefault()
+        duplicateById(selectedId)
+      } else if (!mod && !e.altKey && e.key.toLowerCase() === 'f') {
+        fitView()
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [selectedId, graph.nodes, addNode, showSearch])
-
-  // ── Fit view ──────────────────────────────────────────────────────────────
-  const fitView = useCallback(() => rfInstance.current?.fitView({ padding: 0.2, duration: 300 }), [])
+  }, [selectedId, duplicateById, showSearch, fullscreen, fitView])
 
   // ── Canvas events ─────────────────────────────────────────────────────────
   const onNodeClick = useCallback((_: unknown, n: Node) => { setSelectedId(n.id); setPaneCtx(null); setNodeCtx(null) }, [])
   const onPaneClick = useCallback(() => { setSelectedId(null); setPaneCtx(null); setNodeCtx(null) }, [])
   const onNodeDragStop = useCallback((_: unknown, n: Node) => updateNode(n.id, { position: n.position }), [updateNode])
-  const onEdgesDelete = useCallback((eds: Edge[]) => eds.forEach((e) => removeConnection(e.source, e.target)), [removeConnection])
+  const onEdgesDelete = useCallback(
+    (eds: Edge[]) => eds.forEach((e) => removeConnection(e.source, e.target, (e.data as { fromPort?: number } | undefined)?.fromPort)),
+    [removeConnection],
+  )
   const onNodesDelete = useCallback((nds: Node[]) => nds.forEach((n) => removeNode(n.id)), [removeNode])
+
+  // Smyčka uzlu sám na sebe (např. Splitter → tentýž Splitter) nemá smysl a
+  // dřív vedla k nekonečné rekurzi v simulaci.
+  const isValidConnection = useCallback((c: Connection) => !!c.source && !!c.target && c.source !== c.target, [])
 
   const onConnect = useCallback(
     (params: Connection) => {
-      setEdges((eds) => addEdge({ ...params, type: 'flow', data: { animated: false } }, eds))
-      if (params.source && params.target)
-        addConnection({ from_node: params.source, to_node: params.target, from_port: 0, to_port: 0 })
+      if (!params.source || !params.target || params.source === params.target) return
+      // Port podle handle: Chance má výstup "success" (port 0) a "failure" (port 1).
+      const fromPort = params.sourceHandle === CHANCE_FAILURE_HANDLE ? 1 : 0
+      addConnection({ from_node: params.source, to_node: params.target, from_port: fromPort, to_port: 0 })
     },
-    [setEdges, addConnection, reportA],
+    [addConnection],
   )
 
   const onPaneContextMenu = useCallback((event: MouseEvent) => {
@@ -326,10 +368,9 @@ function GraphEditorInner() {
   // ── Add node from pane context menu ──────────────────────────────────────
   const addNodeOfType = useCallback(
     (type: number) => {
-      if (!paneCtx || !rfInstance.current) return
+      if (!paneCtx || !rfInstance.current || !isKnownNodeType(type)) return
       const pos = rfInstance.current.screenToFlowPosition({ x: paneCtx.x, y: paneCtx.y })
-      const id = `node_${Date.now()}_${_nodeCounter++}`
-      addNode({ id, type: type as GSSNode['type'], label: `${NODE_TYPE_LABELS[type]} ${_nodeCounter}`, position: pos, data: DEFAULT_DATA[type] as GSSNode['data'] })
+      addNode(createNode(type, pos))
       setPaneCtx(null)
     },
     [paneCtx, addNode],
@@ -338,18 +379,14 @@ function GraphEditorInner() {
   // ── Node context menu actions ─────────────────────────────────────────────
   const deleteNode = useCallback((nodeId: string) => {
     removeNode(nodeId)
-    setNodes((nds) => nds.filter((n) => n.id !== nodeId))
-    setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId))
+    if (selectedId === nodeId) setSelectedId(null)
     setNodeCtx(null)
-  }, [removeNode, setNodes, setEdges])
+  }, [removeNode, selectedId])
 
-  const duplicateNode = useCallback((nodeId: string) => {
-    const src = graph.nodes.find((n) => n.id === nodeId)
-    if (!src) return
-    const id = `node_${Date.now()}_${_nodeCounter++}`
-    addNode({ ...src, id, label: `${src.label} (copy)`, position: { x: src.position.x + 40, y: src.position.y + 40 } })
+  const duplicateFromMenu = useCallback((nodeId: string) => {
+    duplicateById(nodeId)
     setNodeCtx(null)
-  }, [graph.nodes, addNode])
+  }, [duplicateById])
 
   // ── Drag & drop from NodePalette ──────────────────────────────────────────
   const onDragOver = useCallback((e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }, [])
@@ -358,9 +395,9 @@ function GraphEditorInner() {
     const typeStr = e.dataTransfer.getData('application/gss-nodetype')
     if (!typeStr || !rfInstance.current) return
     const type = parseInt(typeStr, 10)
+    if (!isKnownNodeType(type)) return
     const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
-    const id = `node_${Date.now()}_${_nodeCounter++}`
-    addNode({ id, type: type as GSSNode['type'], label: `${NODE_TYPE_LABELS[type]} ${_nodeCounter}`, position: pos, data: DEFAULT_DATA[type] as GSSNode['data'] })
+    addNode(createNode(type, pos))
   }, [addNode])
 
   return (
@@ -374,6 +411,7 @@ function GraphEditorInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onEdgesDelete={onEdgesDelete}
           onNodesDelete={onNodesDelete}
           onNodeDragStop={onNodeDragStop}
@@ -385,7 +423,7 @@ function GraphEditorInner() {
           edgeTypes={customEdgeTypes}
           onInit={(inst: ReactFlowInstance) => { rfInstance.current = inst }}
           fitView
-          deleteKeyCode="Delete"
+          deleteKeyCode={['Delete', 'Backspace']}
           snapToGrid={settings.snapToGrid}
           snapGrid={[settings.gridSize, settings.gridSize]}
           defaultEdgeOptions={{ type: 'flow' }}
@@ -396,7 +434,7 @@ function GraphEditorInner() {
           <Controls className="!bg-card !border-border !shadow-none" />
           {settings.showMinimap && !settings.performanceMode && (
             <MiniMap
-              nodeColor={(n) => NODE_TYPE_COLORS[(n.data as { gssType?: number })?.gssType ?? 0] ?? '#3b82f6'}
+              nodeColor={(n: Node) => NODE_TYPE_COLORS[(n.data as { gssType?: number })?.gssType ?? 0] ?? '#3b82f6'}
               maskColor="rgba(10,10,20,0.7)"
               className="!bg-card !border !border-border"
             />
@@ -457,7 +495,7 @@ function GraphEditorInner() {
           </button>
           <button
             onClick={() => setFullscreen((f) => !f)}
-            title={fullscreen ? 'Exit fullscreen' : 'Fullscreen editor'}
+            title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen editor'}
             aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             aria-pressed={fullscreen}
             className="w-8 h-8 bg-card border border-border rounded text-white/50 hover:text-white hover:border-white/30 flex items-center justify-center text-xs transition-colors">
@@ -475,11 +513,11 @@ function GraphEditorInner() {
             <div className="px-3 py-1.5 text-[10px] text-muted uppercase tracking-widest font-semibold border-b border-border mb-1">
               Add Node
             </div>
-            {([1, 0, 3, 2, 4, 5, 7] as const).map((type) => (
+            {NODE_TYPE_ORDER.map((type) => (
               <button key={type} onClick={() => addNodeOfType(type)}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white hover:bg-border transition-colors text-left">
                 <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: NODE_TYPE_COLORS[type] }} />
-                {NODE_TYPE_LABELS[type]}
+                {NODE_TYPE_NAMES[type]}
               </button>
             ))}
           </div>
@@ -492,7 +530,7 @@ function GraphEditorInner() {
             style={{ left: nodeCtx.x, top: nodeCtx.y }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={() => duplicateNode(nodeCtx.nodeId)}
+            <button onClick={() => duplicateFromMenu(nodeCtx.nodeId)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white hover:bg-border transition-colors text-left">
               ⧉ Duplicate <span className="ml-auto text-white/30">Ctrl+D</span>
             </button>

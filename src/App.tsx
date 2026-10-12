@@ -11,12 +11,13 @@ import { SettingsModal } from './components/ui/SettingsModal'
 import { WelcomeModal, hasSeenWelcome } from './components/ui/WelcomeModal'
 import { useLicense } from './hooks/useLicense'
 import { useSimulation } from './hooks/useSimulation'
-import { useAutoSave, loadAutoSave } from './hooks/useAutoSave'
+import { useAutoSave, loadAutoSave, clearAutoSave } from './hooks/useAutoSave'
 import { useVersionHistory } from './hooks/useVersionHistory'
 import { useGraphStore } from './store/graphStore'
-import type { GSSGraph } from './types/graph'
 import { APP_VERSION } from './core/UpdateChecker'
 import { UpdateBanner } from './components/ui/UpdateBanner'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { looksLikeGraph, normalizeGraph } from './core/GraphNormalizer'
 
 // Code splitting (audit R-16): these are only rendered outside the default
 // "editor" tab and, for the charts, pull in the recharts library — keeping
@@ -45,6 +46,8 @@ function PanelFallback() {
 
 // 4 hlavní záložky místo 8
 type Tab = 'editor' | 'analysis' | 'tuner' | 'library'
+type LibTab = 'samples' | 'export' | 'license' | 'history' | 'diff' | 'community'
+const LIB_TABS: LibTab[] = ['samples', 'export', 'history', 'diff', 'community', 'license']
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'editor',   label: 'Editor',   icon: '⬡' },
@@ -55,7 +58,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('editor')
-  const [libTab, setLibTab]       = useState<'samples' | 'export' | 'license' | 'history' | 'diff' | 'community'>('samples')
+  const [libTab, setLibTab]       = useState<LibTab>('samples')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined)
   const { isPro } = useLicense()
@@ -73,11 +76,17 @@ export default function App() {
   // grafu ze store v odděleném efektu, které by mohlo běžet se starým stavem).
   useEffect(() => {
     const saved = loadAutoSave()
-    if (saved && typeof saved === 'object' && 'nodes' in saved) {
-      setGraph(saved as GSSGraph)
-    } else if (!hasSeenWelcome()) {
-      setWelcomeOpen(true)
+    if (looksLikeGraph(saved)) {
+      try {
+        // Obnovený graf je normalizovaný (a tím i ověřený) — poškozený
+        // autosave se zahodí, místo aby shodil aplikaci při každém startu.
+        setGraph(normalizeGraph(saved))
+        return
+      } catch {
+        clearAutoSave()
+      }
     }
+    if (!hasSeenWelcome()) setWelcomeOpen(true)
   }, [setGraph])
 
   // Listen for gss:open-settings custom event (from Intelligence Dashboard upgrade link)
@@ -155,7 +164,9 @@ export default function App() {
             <div className="flex flex-1 overflow-hidden">
               <NodePalette />
               <div className="flex-1 overflow-hidden">
-                <GraphEditor />
+                <ErrorBoundary compact>
+                  <GraphEditor />
+                </ErrorBoundary>
               </div>
             </div>
             {/* Bottom panels */}
@@ -168,6 +179,7 @@ export default function App() {
 
         {/* ANALÝZA TAB — Simulace + Grafy + Intelligence v jedné stránce */}
         {activeTab === 'analysis' && (
+          <ErrorBoundary compact>
           <Suspense fallback={<PanelFallback />}>
             <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
               {/* Simulation controls */}
@@ -180,11 +192,11 @@ export default function App() {
                   <WealthOverTimeChart />
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
-                  <h2 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Production Summary</h2>
+                  <h2 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Final Pool Values</h2>
                   <ProductionSummaryChart />
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
-                  <h2 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">XP Curves</h2>
+                  <h2 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Progress Curves (% of each pool's peak)</h2>
                   <XPCurveChart />
                 </div>
                 <ProGate feature="Power Balance Chart">
@@ -205,15 +217,18 @@ export default function App() {
               <IntelligenceDashboard />
             </div>
           </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* AUTOTUNER TAB */}
         {activeTab === 'tuner' && (
+          <ErrorBoundary compact>
           <Suspense fallback={<PanelFallback />}>
             <div className="flex-1 overflow-auto p-4">
               <AutoTunerPanel />
             </div>
           </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* KNIHOVNA TAB — sub-tabs: Vzory / Export / Licence */}
@@ -221,7 +236,7 @@ export default function App() {
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Sub-tab bar */}
             <div className="flex gap-1 px-4 py-2 bg-card border-b border-border shrink-0">
-              {(['samples', 'export', 'history', 'diff', 'community', 'license'] as const).map((t) => (
+              {LIB_TABS.map((t) => (
                 <button
                   key={t}
                   onClick={() => setLibTab(t)}
@@ -234,6 +249,7 @@ export default function App() {
               ))}
             </div>
             <div className="flex-1 overflow-auto p-4">
+              <ErrorBoundary compact key={libTab}>
               <Suspense fallback={<PanelFallback />}>
                 {libTab === 'samples'  && <SampleGalleryPanel onClose={() => setActiveTab('editor')} />}
                 {libTab === 'export'   && <ExportPanel />}
@@ -242,6 +258,7 @@ export default function App() {
                 {libTab === 'community' && <CommunityLibraryPanel />}
                 {libTab === 'license'  && <LicensePanel />}
               </Suspense>
+              </ErrorBoundary>
             </div>
           </div>
         )}
@@ -258,7 +275,7 @@ export default function App() {
       <CommandPalette
         onRun={run}
         onTabChange={(t) => setActiveTab(t as Tab)}
-        onLibTabChange={(t) => { setActiveTab('library'); setLibTab(t as 'samples' | 'export' | 'license' | 'history') }}
+        onLibTabChange={(t) => { if ((LIB_TABS as string[]).includes(t)) { setActiveTab('library'); setLibTab(t as LibTab) } }}
       />
     </div>
   )

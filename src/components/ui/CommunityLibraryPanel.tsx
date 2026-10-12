@@ -11,11 +11,15 @@ import {
   fetchCommunityIndex, importGraphFromUrl, graphToShareableJson,
   CommunityLibraryError, type CommunityEntry,
 } from '../../core/CommunityLibrary'
+import { validate } from '../../core/GraphValidator'
+import { useGuardedReplace } from './useGuardedReplace'
 
 export function CommunityLibraryPanel() {
   const graph = useGraphStore((s) => s.graph)
   const setGraph = useGraphStore((s) => s.setGraph)
   const resetSim = useSimulationStore((s) => s.reset)
+  const setIssues = useSimulationStore((s) => s.setIssues)
+  const { guard, dialog: confirmDialog } = useGuardedReplace()
 
   const [entries, setEntries] = useState<CommunityEntry[] | null>(null)
   const [indexError, setIndexError] = useState<string | null>(null)
@@ -28,8 +32,14 @@ export function CommunityLibraryPanel() {
   // jiný Library sub-tab. `setGraph` je akce Zustand store (ne React state),
   // takže by se i po odpojení tiše zavolala a přepsala aktuální graf, když
   // by import mezitím doběhl — i když uživatel dávno odešel jinam.
+  // V setupu efektu se ref znovu nastaví na true — v React StrictMode (dev)
+  // se efekty spouští mount → unmount → mount a dřív ref zůstal false, takže
+  // se index nikdy nezobrazil a importy se zahazovaly.
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     fetchCommunityIndex()
@@ -43,8 +53,11 @@ export function CommunityLibraryPanel() {
     try {
       const g = await importGraphFromUrl(url)
       if (!mountedRef.current) return  // uživatel mezitím přepnul na jiný tab — výsledek zahodit
-      setGraph(g)
-      resetSim()
+      guard(() => {
+        setGraph(g)
+        resetSim()
+        setIssues(validate(g))
+      }, `Import "${g.name}"?`)
     } catch (err) {
       if (mountedRef.current) setImportError(err instanceof CommunityLibraryError ? err.message : String(err))
     } finally {
@@ -134,6 +147,7 @@ export function CommunityLibraryPanel() {
           </div>
         )}
       </div>
+      {confirmDialog}
     </div>
   )
 }

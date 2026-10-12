@@ -1,4 +1,4 @@
-// ProductionSummaryChart — Total resource produced per pool (bar chart)
+// ProductionSummaryChart — final amount in each pool (bar chart) with fill % of its capacity
 
 import {
   BarChart,
@@ -11,6 +11,7 @@ import {
   Cell,
 } from 'recharts'
 import { useSimulationStore } from '../../store/simulationStore'
+import { useGraphStore } from '../../store/graphStore'
 
 const BAR_COLORS = [
   '#3b82f6', '#22c55e', '#f97316', '#a855f7',
@@ -19,6 +20,7 @@ const BAR_COLORS = [
 
 export function ProductionSummaryChart() {
   const reportA = useSimulationStore((s) => s.reportA)
+  const nodes = useGraphStore((s) => s.graph.nodes)
 
   if (!reportA) {
     return (
@@ -29,11 +31,19 @@ export function ProductionSummaryChart() {
   }
 
   const finalValues = reportA.summary.final_values
-  const data = Object.entries(finalValues).map(([id, amount]) => ({
-    name: id,
-    amount: parseFloat(amount.toFixed(2)),
-    fill_pct: 0,   // bez capacity info zde
-  }))
+  // Kapacita z grafu — dřív bylo fill_pct natvrdo 0 a tooltip vždy psal "0% full".
+  const capacityOf = (id: string): number | null => {
+    const cap = (nodes.find((n) => n.id === id)?.data as { capacity?: unknown } | undefined)?.capacity
+    return typeof cap === 'number' && cap > 0 ? cap : null
+  }
+  const data = Object.entries(finalValues).map(([id, amount]) => {
+    const cap = capacityOf(id)
+    return {
+      name: id,
+      amount: parseFloat(amount.toFixed(2)),
+      fill_pct: cap ? Math.round((amount / cap) * 100) : null,
+    }
+  })
 
   return (
     <ResponsiveContainer width="100%" height={256}>
@@ -49,9 +59,9 @@ export function ProductionSummaryChart() {
         <Tooltip
           contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3a', fontSize: 11 }}
           labelStyle={{ color: '#9ca3af' }}
-          formatter={(value: number, _name: string, props: { payload?: { fill_pct: number } }) => [
-            `${value} (${props.payload?.fill_pct ?? 0}% full)`,
-            'Amount',
+          formatter={(value: number, _name: string, props: { payload?: { fill_pct: number | null } }) => [
+            props.payload?.fill_pct != null ? `${value} (${props.payload.fill_pct}% of capacity)` : `${value}`,
+            'Final amount',
           ]}
         />
         <Bar dataKey="amount" radius={[3, 3, 0, 0]} isAnimationActive={false}>

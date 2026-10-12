@@ -1,12 +1,12 @@
 // platform/index.ts — vybere správný adaptér podle prostředí.
 //
-// `VITE_PLATFORM` je build-time proměnná (nastavovaná `npm run build:web`,
-// viz Fáze 4) — díky tomu, že jde o `import.meta.env.*` hodnotu, ji Vite
-// při buildu nahradí doslovným řetězcem a bundler pak dokáže z výsledného
-// web bundlu úplně vyloučit `tauri.ts` i celé `@tauri-apps/*` závislosti
-// (mrtvá větev po constant-foldingu). Když proměnná není nastavená (dnešní
-// `npm run dev`/`npm run build` pro desktop, beze změny), spadne to na
-// detekci za běhu — nic se pro současný Tauri flow neláme.
+// `VITE_PLATFORM` je build-time proměnná (nastavovaná `npm run build:web`).
+// Když není nastavená (`npm run dev`/`npm run build` pro desktop), spadne
+// výběr na detekci za běhu (`__TAURI_INTERNALS__`).
+//
+// Pozn.: oba adaptéry se importují staticky, takže `@tauri-apps/*` moduly
+// jsou i ve webovém bundlu (jen se nevolají) — `detectPlatform()` musí umět
+// vrátit kterýkoli adaptér (testy), takže je bundler nemůže vyřadit.
 import type { PlatformAdapter } from './types'
 import { tauriPlatform } from './tauri'
 import { webPlatform } from './web'

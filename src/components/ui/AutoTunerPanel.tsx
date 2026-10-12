@@ -9,6 +9,8 @@ import { ProGate } from './ProGate'
 import { runScenario, buildSimulationContext } from '../../core/ScenarioRunner'
 import { generateVerdictReport } from '../../core/VerdictSystem'
 import { createRNG } from '../../core/SimRNG'
+import { splitParamKey } from '../../core/ParameterSweeper'
+import { validate, hasErrors } from '../../core/GraphValidator'
 import type { RNGInstance } from '../../core/SimRNG'
 
 // ==================== LOKÁLNÍ TYPY ====================
@@ -48,6 +50,13 @@ const SWEEP_FIELDS: Record<number, string[]> = {
   3: ['rate'],
   4: ['value'],
   5: ['success_chance'],
+  8: ['amount', 'interval'],
+  10: ['amount', 'cadence'],
+}
+
+// Pole s pevným rozsahem — doporučení nesmí např. navrhnout šanci 250 %.
+const FIELD_LIMITS: Record<string, { min: number; max: number }> = {
+  success_chance: { min: 0, max: 100 },
 }
 
 function extractParams(graph: import('../../types/graph').GSSGraph): TunerParam[] {
@@ -58,7 +67,14 @@ function extractParams(graph: import('../../types/graph').GSSGraph): TunerParam[
     for (const field of fields) {
       const val = (node.data as unknown as Record<string, number>)[field]
       if (typeof val !== 'number' || val <= 0) continue
-      out.push({ id: `${node.id}.${field}`, name: `${node.label || node.id} → ${field}`, original_value: val, min_value: Math.max(0.001, val * 0.1), max_value: val * 5 })
+      const limit = FIELD_LIMITS[field]
+      out.push({
+        id: `${node.id}.${field}`,
+        name: `${node.label || node.id} → ${field}`,
+        original_value: val,
+        min_value: Math.max(limit?.min ?? 0.001, val * 0.1),
+        max_value: Math.min(limit?.max ?? Infinity, val * 5),
+      })
     }
   }
   return out
@@ -75,7 +91,8 @@ function evalScore(
     nodes: graph.nodes.map((n) => {
       const patch: Record<string, number> = {}
       for (const [key, v] of Object.entries(overrides)) {
-        const [nid, field] = key.split('.')
+        // Poslední tečka — ID uzlu ji může obsahovat (dřív split('.') ID rozbil).
+        const [nid, field] = splitParamKey(key)
         if (nid === n.id) patch[field] = v
       }
       return Object.keys(patch).length > 0 ? { ...n, data: { ...n.data, ...patch } } : n
@@ -147,7 +164,7 @@ async function hillClimb(
   const orig = Object.fromEntries(params.map((p) => [p.id, p.original_value]))
   return {
     status: bestScore >= 75 ? 'SUCCESS' : bestScore >= 50 ? 'PARTIAL' : 'FAILED',
-    total_iterations: effectiveMaxIter,
+    total_iterations: iters.length - 1, // skutečně provedené iterace (bez úvodního vyhodnocení)
     best_score: bestScore,
     best_parameters: best,
     original_parameters: orig,
@@ -206,7 +223,7 @@ async function randomSearch(
   const orig = Object.fromEntries(params.map((p) => [p.id, p.original_value]))
   return {
     status: bestScore >= 75 ? 'SUCCESS' : bestScore >= 50 ? 'PARTIAL' : 'FAILED',
-    total_iterations: effectiveMaxIter,
+    total_iterations: iters.length, // skutečně provedené iterace
     best_score: bestScore === -Infinity ? 0 : bestScore,
     best_parameters: best,
     original_parameters: orig,
@@ -238,7 +255,8 @@ function AutoTunerContent() {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<TunerResult | null>(null)
   const [progress, setProgress] = useState(0)
-  const [seed, setSeed] = useState<number>(Date.now() & 0xFFFFFFFF)
+  const [seed, setSeed] = useState<number>(Date.now() >>> 0)
+  const [runError, setRunError] = useState<string | null>(null)
   const cancelledRef = useRef(false)
 
   const params = extractParams(graph)
@@ -258,7 +276,13 @@ function AutoTunerContent() {
 
   const handleRun = useCallback(async () => {
     if (running || params.length === 0) return
+    // Graf s chybami by v každé iteraci skončil skóre 0 — optimalizace by neměla smysl.
+    if (hasErrors(validate(graph))) {
+      setRunError('Graph contains errors. Fix them (see Issues in the Editor tab) before tuning.')
+      return
+    }
     cancelledRef.current = false
+    setRunError(null)
     setRunning(true); setProgress(0); setResult(null)
     await new Promise<void>((r) => setTimeout(r, 0))
     try {
@@ -266,6 +290,8 @@ function AutoTunerContent() {
       const fn = strategy === 'random_search' ? randomSearch : hillClimb
       const r = await fn(params, lockedIds, maxIter, metric, graph, scenario, setProgress, () => cancelledRef.current, seed)
       setResult(r)
+    } catch (err) {
+      setRunError(`AutoTuner failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRunning(false); setProgress(1)
     }
@@ -327,10 +353,11 @@ function AutoTunerContent() {
             )
           })}
         </div>
-        <p className="text-[10px] text-muted mt-2">Range: ×0.1 – ×5 of original value</p>
+        <p className="text-[10px] text-muted mt-2">Range: ×0.1 – ×5 of original value (success chance capped at 100 %)</p>
       </div>
 
       {/* Button */}
+      {runError && <div className="text-xs text-red-400">{runError}</div>}
       <div className="flex items-center gap-3">
         <button onClick={handleRun} disabled={running}
           className="px-4 py-2 bg-accent hover:bg-accent/80 disabled:opacity-50 text-white text-sm rounded font-medium transition-colors">

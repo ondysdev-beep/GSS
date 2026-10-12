@@ -4,14 +4,14 @@ import type { ReactNode } from 'react'
 import { useLicenseStore } from '../../store/licenseStore'
 import { ITCH_URL } from '../../core/UpdateChecker'
 
+// Musí odpovídat skutečnému gatingu v kódu (viz LicensePanel.tsx).
 const PRO_HIGHLIGHTS = [
   'Unlimited nodes & simulation duration',
   'Full Intelligence Dashboard (bottlenecks, exploits, RNG)',
-  'AutoTuner — AI-powered economy balancing',
-  'A/B Scenario Comparison & Monte Carlo',
+  'AutoTuner — automatic parameter optimization',
+  'A/B Comparison, Monte Carlo & Parameter Sweep',
   'Code export: C# / GDScript / TypeScript',
   'PDF Report & Web Share',
-  'Version history & snapshots',
 ]
 
 interface ProGateProps {
@@ -65,7 +65,7 @@ export function ProGate({ feature, preview = true, children }: ProGateProps) {
         >
           Get PRO on itch.io →
         </a>
-        <p className="text-[9px] text-white/25">Lifetime license · 3 device activations</p>
+        <p className="text-[9px] text-white/25">PRO is a separate download — no license key or activation needed</p>
       </div>
     </div>
   )

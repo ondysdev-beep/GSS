@@ -6,8 +6,7 @@
 // (`invoke()`, `@tauri-apps/plugin-dialog`) přímo. Webová verze GSS běží
 // v prohlížeči bez Tauri runtime, takže potřebuje jinou implementaci
 // stejné funkčnosti (native file dialog → <input type="file">/download,
-// tauri-plugin-store → localStorage, Rust license check → build-time
-// konstanta). Komponenty samotné se nemění vůbec — jen volají tohle
+// FREE/PRO → build-time konstanta; AI Generator na webu není dostupný). Komponenty samotné se nemění vůbec — jen volají tohle
 // rozhraní a "adaptér" se vybere jednou při startu (viz platform/index.ts).
 
 export interface OpenFileResult {
@@ -29,6 +28,8 @@ export interface LicensePlatform {
 }
 
 export interface AIPlatform {
+  /** false = AI Generator is unavailable on this platform (web: no CORS proxy) — UI should not offer it. */
+  readonly supportsAiGenerator: boolean
   hasAnthropicApiKey(): Promise<boolean>
   saveAnthropicApiKey(key: string): Promise<void>
   clearAnthropicApiKey(): Promise<void>

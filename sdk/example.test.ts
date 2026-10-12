@@ -16,7 +16,9 @@ const CLI = join(__dirname, 'example.ts')
 
 async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
-    const { stdout, stderr } = await execFileAsync('npx', ['tsx', CLI, ...args], { cwd: join(__dirname, '..') })
+    // `node --import tsx` místo `npx tsx`: execFile('npx') na Windows bez
+    // shellu selže (npx je tam npx.cmd), takže testy běžely jen na Linuxu/macOS.
+    const { stdout, stderr } = await execFileAsync(process.execPath, ['--import', 'tsx', CLI, ...args], { cwd: join(__dirname, '..') })
     return { stdout, stderr, code: 0 }
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; code?: number }

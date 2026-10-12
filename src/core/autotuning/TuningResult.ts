@@ -90,6 +90,18 @@ export function finalizeResult(result: TuningResult): TuningResult {
 
   const bestGoalResults = bestIter >= 0 ? result.iterations[bestIter].goal_scores : {}
 
+  // Plnění cílů a constrainty se odvozují z NEJLEPŠÍ iterace. Dřív se
+  // goals_satisfied počítalo před naplněním best_goal_results (vždy 0 →
+  // status vždy FAILED) a jakékoli porušení během zkušebních kroků trvale
+  // označilo celý běh jako FAILED, i když nejlepší řešení vše splňovalo.
+  const goalsSatisfied = Object.values(bestGoalResults).filter((g) => g.satisfied).length
+  const satRate = result.goals_total > 0 ? goalsSatisfied / result.goals_total : 1
+  const allConstraintsSatisfied = bestIter >= 0
+  const lastIter = result.iterations[result.iterations.length - 1]
+  const violations = allConstraintsSatisfied
+    ? []
+    : (lastIter?.constraint_checks.filter((c) => !c.valid) ?? [])
+
   // Parameter changes
   const changes: ParameterChange[] = []
   for (const [paramId, bestParam] of Object.entries(result.best_parameters)) {
@@ -106,9 +118,9 @@ export function finalizeResult(result: TuningResult): TuningResult {
 
   // Status
   let status: ResultStatus
-  if (!result.all_constraints_satisfied) status = 'FAILED'
-  else if (result.goal_satisfaction_rate >= 1.0) status = 'SUCCESS'
-  else if (result.goal_satisfaction_rate > 0) status = 'PARTIAL'
+  if (!allConstraintsSatisfied) status = 'FAILED'
+  else if (satRate >= 1.0) status = 'SUCCESS'
+  else if (satRate > 0) status = 'PARTIAL'
   else status = 'FAILED'
 
   return {
@@ -118,6 +130,10 @@ export function finalizeResult(result: TuningResult): TuningResult {
     best_iteration:   bestIter,
     best_score:       bestScore > -Infinity ? bestScore : 0,
     best_goal_results: bestGoalResults,
+    goals_satisfied: goalsSatisfied,
+    goal_satisfaction_rate: satRate,
+    all_constraints_satisfied: allConstraintsSatisfied,
+    constraint_violations: violations,
     parameter_changes: changes,
     status,
   }

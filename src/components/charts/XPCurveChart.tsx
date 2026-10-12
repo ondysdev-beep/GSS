@@ -1,4 +1,4 @@
-// XPCurveChart — Pool fill % over time (0–100 scale, good for RPG progression curves)
+// XPCurveChart — each pool as % of its own peak value over time (0–100 scale, good for RPG progression curves)
 
 import {
   LineChart,
@@ -34,15 +34,20 @@ export function XPCurveChart() {
   const step = Math.max(1, Math.floor(ts.length / 300))
 
   // Normalizovat na % z max hodnoty pro každý pool (simulátor XP křivky)
+  // Smyčka místo Math.max(...pole) — spread dlouhé time series přetekl zásobník.
   const maxVals: Record<string, number> = {}
-  for (const key of poolKeys) {
-    maxVals[key] = Math.max(...ts.map((f) => f.pools[key] ?? 0), 1)
+  for (const key of poolKeys) maxVals[key] = 1
+  for (const f of ts) {
+    for (const key of poolKeys) {
+      const v = f.pools[key] ?? 0
+      if (v > maxVals[key]) maxVals[key] = v
+    }
   }
 
   const data = ts
     .filter((_, i) => i % step === 0)
     .map((frame) => {
-      const row: Record<string, number> = { tick: frame.time }
+      const row: Record<string, number> = { time: frame.time }
       for (const key of poolKeys) {
         row[key] = parseFloat(((frame.pools[key] ?? 0) / maxVals[key] * 100).toFixed(1))
       }
@@ -54,7 +59,7 @@ export function XPCurveChart() {
       <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
         <XAxis
-          dataKey="tick"
+          dataKey="time"
           tick={{ fill: '#6b7280', fontSize: 10 }}
           tickLine={false}
         />

@@ -10,6 +10,20 @@ import type {
   ValidationIssue,
 } from '../types/simulation'
 import { defaultScenario } from '../types/simulation'
+import { getSettings } from './settingsStore'
+
+/**
+ * Default scenario with the user's duration/dt defaults from Settings.
+ * (The default SEED goes into new graphs' `simulation_seed` — see graphStore —
+ * so that a loaded project keeps using its own seed.)
+ */
+export function scenarioFromSettings(): Scenario {
+  const s = getSettings()
+  const sc = defaultScenario()
+  if (Number.isFinite(s.defaultDuration) && s.defaultDuration > 0) sc.duration = s.defaultDuration
+  if (Number.isFinite(s.defaultDt) && s.defaultDt > 0) sc.dt = s.defaultDt
+  return sc
+}
 
 interface SimulationStore {
   // Scenario konfigurace
@@ -53,7 +67,7 @@ interface SimulationStore {
 }
 
 export const useSimulationStore = create<SimulationStore>((set) => ({
-  scenario: defaultScenario(),
+  scenario: scenarioFromSettings(),
   isRunning: false,
   progress: 0,
   reportA: null,

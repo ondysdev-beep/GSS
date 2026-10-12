@@ -3,10 +3,10 @@
 // SECURITY DESIGN (viz SECURITY.md): GSS nemá žádný vlastní AI backend a
 // nebude vymýšlet neexistující infrastrukturu. Místo toho jde o
 // "bring your own key" (BYOK) model — uživatel zadá VLASTNÍ Anthropic API
-// klíč (získaný na console.anthropic.com), GSS ho pouze bezpečně uloží
-// lokálně (tauri-plugin-store, stejný store soubor jako licence, NIKDY
-// localStorage) a používá ho pro volání Anthropic API přímo z Rustu
-// (ne z WebView — konzistentní s tím, jak GSS už volá itch.io API).
+// klíč (získaný na console.anthropic.com), GSS ho uloží lokálně do store
+// souboru aplikace (tauri-plugin-store, `gss.bin` v adresáři dat aplikace —
+// obyčejný JSON, NEšifrovaný; NIKDY localStorage) a používá ho pro volání
+// Anthropic API přímo z Rustu (ne z WebView, kde by klíč viděl každý skript).
 //
 // Klíč se nikdy neposílá zpátky do JS po uložení — frontend se jen ptá
 // "je nakonfigurován?" (has_anthropic_api_key), nikdy nečte jeho hodnotu.
@@ -144,11 +144,11 @@ pub async fn generate_economy_graph(
     let body = AnthropicRequest {
         model: ANTHROPIC_MODEL,
         // Oprava B9: 4096 tokenů mohlo být těsné pro grafy blížící se hornímu
-    // doporučení v systémovém promptu (~12 uzlů s pozicemi a daty) — model
-    // by odpověď oříznul uprostřed JSON, což by na frontendu vypadalo jako
-    // obecná "neplatný JSON" chyba bez vysvětlení proč. 8192 dává výrazně
-    // víc prostoru, aniž by šlo o nepřiměřeně drahý/pomalý požadavek.
-    max_tokens: 8192,
+        // doporučení v systémovém promptu (~12 uzlů s pozicemi a daty) — model
+        // by odpověď oříznul uprostřed JSON, což by na frontendu vypadalo jako
+        // obecná "neplatný JSON" chyba bez vysvětlení proč. 8192 dává výrazně
+        // víc prostoru, aniž by šlo o nepřiměřeně drahý/pomalý požadavek.
+        max_tokens: 8192,
         system: SYSTEM_PROMPT,
         messages: vec![AnthropicMessage {
             role: "user",
@@ -156,8 +156,11 @@ pub async fn generate_economy_graph(
         }],
     };
 
+    // Generování až 8192 tokenů může trvat přes minutu — 60 s timeout dřív
+    // ukončoval právě ty větší (validní) odpovědi.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(180))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -172,10 +175,18 @@ pub async fn generate_economy_graph(
         .map_err(|e| format!("Network error calling Anthropic API: {}", e))?;
 
     let status = resp.status();
-    let parsed: AnthropicResponse = resp
-        .json()
+    let body_text = resp
+        .text()
         .await
-        .map_err(|e| format!("Could not parse Anthropic API response: {}", e))?;
+        .map_err(|e| format!("Could not read Anthropic API response: {}", e))?;
+    // Chybová odpověď nemusí být JSON (např. HTML z proxy) — pak aspoň HTTP status.
+    let parsed: AnthropicResponse = match serde_json::from_str(&body_text) {
+        Ok(p) => p,
+        Err(e) if status.is_success() => {
+            return Err(format!("Could not parse Anthropic API response: {}", e))
+        }
+        Err(_) => return Err(format!("Anthropic API returned HTTP {}.", status)),
+    };
 
     if let Some(err) = parsed.error {
         return Err(format!("Anthropic API error: {}", err.message));
