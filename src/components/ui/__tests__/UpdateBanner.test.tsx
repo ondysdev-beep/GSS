@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { UpdateBanner } from '../UpdateBanner'
 import { platform } from '../../../platform'
+import { useLicenseStore } from '../../../store/licenseStore'
 
 vi.mock('../../../platform', async () => {
   const actual = await vi.importActual<typeof import('../../../platform')>('../../../platform')
@@ -27,6 +28,32 @@ describe('UpdateBanner', () => {
   beforeEach(() => {
     mockedCheck.mockReset()
     mockedInstall.mockReset()
+    vi.unstubAllGlobals()
+    useLicenseStore.setState({ license: { isPro: false } })
+  })
+
+  it('dokud není známá edice, nekontroluje nic', async () => {
+    useLicenseStore.setState({ license: null })
+    mockedCheck.mockResolvedValue({ version: '3.4.0', notes: '' })
+    const { container } = render(<UpdateBanner />)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mockedCheck).not.toHaveBeenCalled()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('PRO nepoužívá Tauri updater, ale odkáže na itch.io', async () => {
+    useLicenseStore.setState({ license: { isPro: true } })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: '99.0.0', download_url: 'https://neopryus.itch.io/idle-economy-simulator' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<UpdateBanner />)
+
+    const link = await screen.findByRole('link', { name: /Download on itch\.io/i })
+    expect(link).toHaveAttribute('href', 'https://neopryus.itch.io/idle-economy-simulator')
+    expect(screen.getByText(/99\.0\.0/)).toBeInTheDocument()
+    expect(mockedCheck).not.toHaveBeenCalled()
   })
 
   it('nevykreslí nic, dokud kontrola nenajde aktualizaci', async () => {

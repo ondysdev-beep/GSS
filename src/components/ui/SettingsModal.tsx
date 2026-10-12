@@ -344,7 +344,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
                   </summary>
                   <div className="mt-2 p-3 bg-white/5 rounded text-[10px] text-white/40 leading-relaxed space-y-1">
                     <p>GSS doesn't use a runtime license key. FREE and PRO are separate downloads/builds — which one you're running is decided at build time, not by anything you enter here.</p>
-                    <p>If you'd like PRO, download the PRO installer (desktop) or use the PRO web version — see the link above.</p>
+                    <p>If you'd like PRO, get the GSS PRO desktop app on itch.io — see the link above.</p>
                   </div>
                 </details>
               </>

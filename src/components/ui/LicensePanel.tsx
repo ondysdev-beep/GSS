@@ -81,15 +81,14 @@ export function LicensePanel() {
         </div>
       </div>
 
-      {/* ── Get PRO — separate download, no key entry. Web editions are two
-           separate builds picked by which URL you're on (/ vs /pro); desktop
-           PRO is a separate installer from the FREE one. Either way, there
-           is nothing to type here — see SECURITY.md "PRO/FREE gating". */}
+      {/* ── Get PRO — separate download, no key entry. PRO is the desktop app
+           sold on itch.io (the public web deployment is FREE only); there is
+           nothing to type here — see SECURITY.md "PRO/FREE gating". */}
       {!isPro && (
         <div className="flex flex-col gap-2 pt-1 items-center text-center">
           <p className="text-xs text-white/50">
             {platform.name === 'web'
-              ? <>Want PRO? Try the PRO web version, or grab the PRO desktop app on itch.io.</>
+              ? <>Want PRO? Get the GSS PRO desktop app on itch.io.</>
               : <>PRO is a separate download — no key to enter, just grab the PRO installer.</>}
           </p>
           <a

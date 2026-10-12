@@ -169,20 +169,25 @@ secret. Old installs won't be able to verify new updates signed with a
 different key until they're manually reinstalled once — this is expected,
 not a bug, and is exactly the protection the signature exists to provide.
 
-**Per-edition manifests:** tauri-action signs the bundles but its own
-single `latest.json` is disabled (`uploadUpdaterJson: false`) — FREE and
-PRO upload to the same release, so one shared manifest would let a PRO
-install "update" to the FREE build and vice versa. The `updater-manifests`
-CI job runs `scripts/generate-updater-manifests.cjs` after all builds and
-uploads `latest-free.json` (assets named `GSS_…`) and `latest-pro.json`
-(`GSS-PRO_…`), which are the endpoints configured in `tauri.conf.json` and
-the PRO build's `--config` override.
+**Manifests:** tauri-action signs the bundles but its own single
+`latest.json` is disabled (`uploadUpdaterJson: false`). The
+`updater-manifests` CI job runs `scripts/generate-updater-manifests.cjs`
+after all builds and uploads `latest-free.json` (assets named `GSS_…`),
+the endpoint configured in `tauri.conf.json`.
 
-**Not verified end-to-end:** this could not be run in a real GitHub Actions
-release from the development environment. On the first tagged release,
-check that both manifest files appear as release assets (the job fails
-loudly if no signed bundles are found) and that a FREE/PRO install of the
-previous version detects and installs the new one.
+**PRO is not on the GitHub Release.** PRO is sold on itch.io, so CI builds
+it without updater bundles and pushes the installers to itch.io with butler
+(secret `BUTLER_API_KEY`), or — without that secret — keeps them for one day
+as a workflow artifact. A PRO install therefore does not use the Tauri
+updater at all: `UpdateBanner.tsx` compares its version with `version.json`
+on `main` and links to itch.io. The PRO build's endpoint override
+(`latest-pro.json`, never published) only guarantees that a PRO install can
+never "update" itself to the FREE build.
+
+**Caveat:** the repository itself is public, so anyone can still build PRO
+from source (`--features pro`). Keeping PRO installers off GitHub stops
+casual free downloads, not a determined developer; making the repository
+private is the only way to close that.
 
 ## Anthropic API key (AI Generator)
 
@@ -197,9 +202,9 @@ previous version detects and installs the new one.
 
 ## Web edition gating
 
-The web build is deployed as FREE at `/` and PRO at `/pro/` on the same
-site (see WEB_DEPLOY.md). Both are public static files: whoever can reach
-the site can open `/pro/`. If PRO must be paid-only on the web, the `/pro/`
-path needs access control at the hosting level (e.g. Cloudflare Access) —
-the app itself cannot enforce it.
+Only the FREE web build is deployed (see WEB_DEPLOY.md). A PRO web build
+would be public static files that anyone who knows the URL could open, so
+CI no longer deploys `/pro/`; if a paid PRO web version is ever wanted, it
+needs access control at the hosting level (e.g. Cloudflare Access) — the
+app itself cannot enforce it.
 

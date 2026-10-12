@@ -35,7 +35,7 @@ see [DEVLOG.md](./DEVLOG.md).
 - Economy collapse detection is now active; Parameter Sweep sweeps the field you selected; AutoTuner never recommends a chance above 100 %.
 
 **Desktop / web**
-- Auto-update manifests are generated per edition (FREE and PRO no longer share one manifest).
+- GSS PRO is distributed only through itch.io: PRO installers are no longer attached to the public GitHub release and the public web version is FREE only. A PRO install shows a "new version on itch.io" notice instead of updating itself; FREE keeps automatic updates.
 - Release builds keep the real app icon (CI used to replace it with a grey square).
 - The web version no longer stores an Anthropic API key in browser storage (the AI Generator is desktop-only).
 

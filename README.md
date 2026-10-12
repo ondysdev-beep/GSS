@@ -8,8 +8,9 @@ GSS is a node-based economy designer and simulator for game developers. Build re
 
 ## Download & Install
 
-Grab the latest installer for your platform from
-[Releases](https://github.com/ondysdev-beep/GSS/releases/latest) — filenames
+Grab the latest **FREE** installer for your platform from
+[Releases](https://github.com/ondysdev-beep/GSS/releases/latest) (GSS PRO is
+available on [itch.io](https://neopryus.itch.io/idle-economy-simulator)) — filenames
 include the current version number, which changes with every release, so
 it isn't repeated here (see [CHANGELOG.md](./CHANGELOG.md) for what's new).
 

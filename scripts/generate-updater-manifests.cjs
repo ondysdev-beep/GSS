@@ -11,6 +11,10 @@
 // tauri-action with `uploadUpdaterJson: false` and calls this script once
 // all builds have finished.
 //
+// PRO is now sold on itch.io and its installers are no longer attached to
+// the GitHub Release, so normally only latest-free.json is produced (the
+// "skipping latest-pro.json" warning is expected).
+//
 // Usage (CI, needs the `gh` CLI and GH_TOKEN):
 //   node scripts/generate-updater-manifests.cjs <tag>
 // Asset names follow the Tauri bundler: FREE = "GSS_…", PRO = "GSS-PRO_…".

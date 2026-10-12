@@ -1,46 +1,26 @@
-# Nasazení webové verze GSS (FREE + PRO)
+# Nasazení webové verze GSS (FREE)
 
-Shrnutí architektury: `npm run build:web:site` vyrobí jednu složku
-`dist-web-site/` obsahující FREE build v kořeni a PRO build v `/pro/`.
-Nahrává se jako **jeden celek** (jedno nasazení, jedna doména).
+Veřejně se nasazuje **jen FREE** web: `npm run build:web:free` vyrobí složku
+`dist-web/free/`. PRO se prodává jako desktopová aplikace na itch.io —
+statická podsložka `/pro/` by byla zdarma dostupná komukoli, kdo zná adresu,
+proto ji CI nenasazuje. (`npm run build:web:site` s PRO v `/pro/` zůstává jen
+pro lokální testování — **nenahrávej jeho výstup na veřejný hosting**.
+Viz SECURITY.md → "Web edition gating".)
 
-> **Pozor:** `/pro/` je obyčejná statická podsložka — kdo zná adresu, PRO
-> verzi otevře. Pokud má být PRO na webu jen pro platící, je potřeba
-> `/pro/` chránit na úrovni hostingu (např. Cloudflare Access). Viz
-> SECURITY.md → "Web edition gating".
+## Automatické nasazení přes GitHub Actions (doporučeno)
 
-## Manuální nasazení (nejjednodušší způsob, žádný GitHub potřeba)
+`.github/workflows/ci.yml` obsahuje job `deploy-web`, který se spustí
+při každém pushi do `main`/`master` — **ale nasazovací krok je vypnutý**,
+dokud nenastavíš:
 
-```bash
-npm run build:web:site
-```
-
-Vezmi obsah `dist-web-site/` a přetáhni ho na kteroukoli z nich:
-
-### Cloudflare Pages (doporučeno, zdarma)
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create → Pages → **Upload assets**
-2. Přetáhni celý obsah `dist-web-site/`
-3. Hotovo — dostaneš URL typu `gss-web.pages.dev`
-
-### Vercel
-1. [vercel.com/new](https://vercel.com/new) → přetáhnout složku `dist-web-site/` (nebo `vercel --prod` z příkazové řádky s Vercel CLI)
-
-### Netlify
-1. [app.netlify.com/drop](https://app.netlify.com/drop) → přetáhnout `dist-web-site/`
-
-Všechny tři mají zdarma dostatečný tier pro statický web bez vlastního serveru.
-
-## Automatické nasazení přes GitHub Actions (volitelné)
-
-`.github/workflows/ci.yml` už obsahuje job `deploy-web`, který se spustí
-při každém pushi do `main`/`master` — **ale je defaultně vypnutý**, dokud
-nenastavíš:
-
-1. **Založit Cloudflare účet** (zdarma) na [dash.cloudflare.com](https://dash.cloudflare.com)
-2. **Vytvořit API token**: My Profile → API Tokens → Create Token →
-   šablona "Edit Cloudflare Workers" stačí (zahrnuje i Pages)
-3. **Zjistit Account ID**: kterákoli doména v Cloudflare dashboardu, Account ID
-   je v pravém panelu
+1. **Cloudflare účet** (zdarma) na [dash.cloudflare.com](https://dash.cloudflare.com).
+   Projekt v Cloudflare **nezakládej** — workflow si projekt `gss-web` založí
+   sám při prvním nasazení.
+2. **API token**: ikona profilu → My Profile → API Tokens → Create Token →
+   Create Custom Token → Permissions: `Account` / `Cloudflare Pages` / `Edit`
+   → Continue to summary → Create Token.
+3. **Account ID**: 32znakový kód v adrese dashboardu
+   (`https://dash.cloudflare.com/<account-id>/…`).
 4. V GitHub repu → Settings → Secrets and variables → Actions:
    - **Secrets** → New repository secret:
      - `CLOUDFLARE_API_TOKEN` = token z kroku 2
@@ -49,32 +29,37 @@ nenastavíš:
      - `CLOUDFLARE_PAGES_ENABLED` = `true` (bez tohohle zůstane deploy krok
        vypnutý — vědomá pojistka, aby workflow neselhával kvůli chybějícím
        secrets, pokud web nasazení zatím nechceš)
-5. První push do `main` vytvoří Cloudflare Pages projekt `gss-web`
-   automaticky (jméno je natvrdo v `ci.yml` — uprav, pokud chceš jiné)
+5. Spusť workflow znovu (Actions → poslední běh na `main` → Re-run all jobs)
+   nebo pushni do `main`. Web poběží na `https://gss-web.pages.dev`.
 
-## Testování před nasazením (doporučeno)
+## Manuální nasazení (bez GitHubu)
 
 ```bash
-npm run build:web:site
-cd dist-web-site
-python3 -m http.server 8000
-# otevřít http://localhost:8000/     → FREE
-# otevřít http://localhost:8000/pro/ → PRO
+npm run build:web:free
 ```
 
-Tohle je přesně to, co jsem sám ověřil (HTTP odpovědi, správné cesty k
-assetům, žádný Tauri kód v bundlu) — **nemohl jsem ale spustit skutečný
-prohlížeč** (síťová omezení mého prostředí neumožnila stáhnout Chromium
-pro automatizovaný test). Doporučuju před ostrým nasazením projít appku
-naživo v prohlížeči — hlavně: otevření/uložení grafu (stažení souboru),
-AI Generator (na webu se nemá vůbec zobrazit), Community Library, a přepnutí mezi `/` a `/pro/` pro ověření,
-že se PRO funkce skutečně odemknou.
+Obsah `dist-web/free/` nahraj na Cloudflare Pages (Workers & Pages → Create →
+Pages → Upload assets), Vercel ([vercel.com/new](https://vercel.com/new)) nebo
+Netlify ([app.netlify.com/drop](https://app.netlify.com/drop)). Všechny tři
+mají zdarma dostatečný tier pro statický web.
+
+## Testování před nasazením
+
+```bash
+npm run build:web:free
+cd dist-web/free
+python3 -m http.server 8000
+# otevřít http://localhost:8000/
+```
+
+Doporučuju projít appku naživo v prohlížeči — hlavně: otevření/uložení grafu
+(stažení souboru), AI Generator (na webu se nemá vůbec zobrazit) a Community
+Library.
 
 ## Co na webu chybí oproti desktopu (vědomě)
 
+- **PRO funkce** — jen v desktopové PRO verzi z itch.io.
 - **AI Generator** — vyžaduje CORS proxy (Anthropic API neposkytuje CORS
   hlavičky pro přímé volání z prohlížeče), který zatím není nasazený.
   Na webu se tlačítko AI vůbec nezobrazuje a API klíč se neukládá.
   Viz `src/platform/web.ts`.
-- **Runtime licenční klíč** — FREE/PRO na webu je čistě to, na jaké URL
-  jsi (`/` vs `/pro/`), zadaný při buildu. Žádné "zadej klíč" pole.
