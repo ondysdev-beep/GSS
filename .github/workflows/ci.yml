@@ -72,12 +72,12 @@ jobs:
           - platform: ubuntu-22.04
             edition: PRO
             args: '--features pro --config {"productName":"GSS-PRO","bundle":{"createUpdaterArtifacts":false},"plugins":{"updater":{"endpoints":["https://github.com/ondysdev-beep/GSS/releases/latest/download/latest-pro.json"]}}}'
+          # One universal build (Apple Silicon + Intel in one .dmg) instead of
+          # two per-architecture builds: itch.io's mac-free channel holds one
+          # set of files, and users no longer have to pick an architecture.
           - platform: macos-latest
             edition: FREE
-            args: '--target aarch64-apple-darwin'
-          - platform: macos-latest
-            edition: FREE
-            args: '--target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           # NOTE: macOS PRO builds are not currently produced (this matches
           # the scope of the previous release.yml, which never built PRO for
           # macOS either — not a regression from this consolidation, but a
@@ -108,13 +108,19 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          # job-index: the two macOS FREE builds (aarch64 / x86_64) used to share one cache key
+          # job-index keeps cache keys unique per matrix entry
           key: ${{ matrix.platform }}-${{ matrix.edition }}-${{ strategy.job-index }}
 
       # Icons are committed in src-tauri/icons (generated from app-icon-source.png
       # via `npm run icons`). The old "node generate-icons.cjs" step overwrote
       # them with flat grey placeholder squares in every release build.
       - run: npm ci
+
+      # The Rust cache can restore installers from an earlier run; start clean
+      # so only this build's files get uploaded.
+      - name: Remove cached installers
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
 
       - name: Build and publish draft release (FREE)
         if: matrix.edition == 'FREE'
@@ -139,7 +145,7 @@ jobs:
           releaseBody: |
             GSS FREE: download the installer for your platform:
             - **Windows**: `.msi` (recommended) or `.exe` (NSIS)
-            - **macOS**: `.dmg`
+            - **macOS**: `.dmg` (universal: Apple Silicon and Intel)
             - **Linux**: `.deb` or `.AppImage`
 
             **GSS PRO** (exports, AutoTuner, Monte Carlo, Parameter Sweep) is
@@ -156,53 +162,64 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-      - name: 'PRO: collect installers'
-        if: matrix.edition == 'PRO'
+      # ── itch.io: FREE → windows-free / mac-free / linux-free,
+      #             PRO  → windows-pro / linux-pro ──
+      # Only this version's installers: the Rust cache may keep bundles of
+      # older versions in target/.
+      - name: Collect installers for itch.io
         shell: bash
         run: |
-          mkdir -p pro-out
-          B=src-tauri/target/release/bundle
-          cp $B/nsis/*-setup.exe pro-out/ 2>/dev/null || true
-          cp $B/appimage/*.AppImage pro-out/ 2>/dev/null || true
-          ls -la pro-out
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p itch-out
+          find src-tauri/target \( -path '*/bundle/nsis/*' -o -path '*/bundle/appimage/*' -o -path '*/bundle/dmg/*' \) \
+            \( -name "*_${VER}_*-setup.exe" -o -name "*_${VER}_*.AppImage" -o -name "*_${VER}_*.dmg" \) \
+            -exec cp {} itch-out/ \;
+          ls -la itch-out
+          [ -n "$(ls -A itch-out)" ] || { echo "No installers for version $VER found"; exit 1; }
 
       # Automatic upload to itch.io (butler) when the BUTLER_API_KEY secret is
       # set (itch.io → Settings → API keys). Target page = repository variable
-      # ITCH_GAME (default neopryus/idle-economy-simulator); channels
-      # windows-pro / linux-pro (itch.io detects the platform from the name).
-      - name: 'PRO: is itch.io upload configured?'
+      # ITCH_GAME (default neopryus/idle-economy-simulator). itch.io detects
+      # the platform from the channel name.
+      - name: Is itch.io upload configured?
         id: itch
-        if: matrix.edition == 'PRO'
         shell: bash
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
           if [ -n "$BUTLER_API_KEY" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"; else echo "enabled=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: 'PRO: upload to itch.io (butler)'
-        if: matrix.edition == 'PRO' && steps.itch.outputs.enabled == 'true'
+      - name: Upload to itch.io (butler)
+        if: steps.itch.outputs.enabled == 'true'
         shell: bash
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
           ITCH_GAME: ${{ vars.ITCH_GAME || 'neopryus/idle-economy-simulator' }}
+          EDITION: ${{ matrix.edition }}
         run: |
           # Accepts "user/game" as well as a page URL ("https://user.itch.io/game").
           GAME=$(printf '%s' "$ITCH_GAME" | sed -E 's#^https?://##; s#^([^./]+)\.itch\.io/#\1/#; s#/+$##')
           case "$GAME" in */*) ;; *) echo "ITCH_GAME must look like user/game, got: $ITCH_GAME"; exit 1 ;; esac
-          if [ "$RUNNER_OS" = "Windows" ]; then OS=windows; else OS=linux; fi
-          curl -sSfL -o butler.zip "https://broth.itch.zone/butler/$OS-amd64/LATEST/archive/default"
+          case "$RUNNER_OS" in
+            Windows) CHANNEL=windows; BUTLER=windows-amd64 ;;
+            macOS)   CHANNEL=mac;     BUTLER=darwin-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo amd64) ;;
+            *)       CHANNEL=linux;   BUTLER=linux-amd64 ;;
+          esac
+          if [ "$EDITION" = "PRO" ]; then CHANNEL="$CHANNEL-pro"; else CHANNEL="$CHANNEL-free"; fi
+          curl -sSfL -o butler.zip "https://broth.itch.zone/butler/$BUTLER/LATEST/archive/default"
           unzip -q butler.zip -d butler-bin
           chmod +x butler-bin/butler* || true
-          ./butler-bin/butler push pro-out "$GAME:$OS-pro" --userversion "${GITHUB_REF_NAME#v}"
+          ./butler-bin/butler push itch-out "$GAME:$CHANNEL" --userversion "${GITHUB_REF_NAME#v}"
 
-      # Without BUTLER_API_KEY the installers are kept for 1 day as a workflow
-      # artifact (Actions → this run → Artifacts) for a manual itch.io upload.
+      # PRO without BUTLER_API_KEY: the installers are kept for 1 day as a
+      # workflow artifact (Actions → this run → Artifacts) for a manual upload.
+      # (FREE installers are on the GitHub Release anyway.)
       - name: 'PRO: keep installers as a short-lived artifact'
         if: matrix.edition == 'PRO' && steps.itch.outputs.enabled != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: GSS-PRO-${{ runner.os }}
-          path: pro-out
+          path: itch-out
           retention-days: 1
           if-no-files-found: error
 

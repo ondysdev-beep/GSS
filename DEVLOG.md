@@ -29,6 +29,8 @@ User-facing summary: CHANGELOG.md → "3.4.0". File-level notes:
 - Rust: unused `tokio` and `tauri-plugin-fs` removed (also `@tauri-apps/plugin-fs` on the JS side), AI request timeout 180 s with non-JSON error handling, `html` allowed for report exports.
 - `@eslint/js` declared as a dev dependency; build output folders ignored by ESLint.
 - PRO is sold on itch.io: PRO builds are no longer attached to the GitHub Release (butler push to itch.io with `BUTLER_API_KEY`, otherwise a 1-day workflow artifact), no PRO updater bundles; PRO `UpdateBanner` compares with `version.json` on `main` and links to itch.io. Web deploy is FREE only (`dist-web/free`, no public `/pro/`).
+- itch.io: every build (FREE and PRO) is pushed with butler to `windows|mac|linux-free` / `windows|linux-pro`; cached bundles are removed before the build so only this version's installers are uploaded. macOS is built once as `universal-apple-darwin` (the updater manifest maps both darwin keys to the universal bundle).
+- Docs: `docs/NODE_REFERENCE.md` and per-node "How does this node work?" text in the inspector (`NODE_TYPE_DOCS` in `nodeCatalog.ts`). Validator: new `FAN_OUT_COPIES` info (push node with 2+ connections on one output copies the flow — engine rule, unchanged); Issues panel shows node labels and collapses when there are no errors.
 - Web deploy: `cloudflare/pages-action` was removed from GitHub (job failed in "Set up job"); replaced by `wrangler pages deploy`, which also creates the `gss-web` project on first run.
 
 ## v3.2.1 -- Bug Fixes, Tech Debt, and New Features

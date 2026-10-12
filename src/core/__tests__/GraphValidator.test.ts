@@ -37,6 +37,51 @@ describe('GraphValidator', () => {
     expect(errors).toHaveLength(0)
   })
 
+  it('a Source wired to two pools gets a FAN_OUT_COPIES info (flow is copied, not split)', () => {
+    const graph: GSSGraph = {
+      ...VALID_MINIMAL,
+      nodes: [
+        ...VALID_MINIMAL.nodes,
+        { id: 'pool2', type: 0, label: 'Pool 2', position: { x: 100, y: 100 }, data: { resource: 'Gold', capacity: 100 } },
+      ],
+      connections: [
+        ...VALID_MINIMAL.connections,
+        { from_node: 'src1', to_node: 'pool2', from_port: 0, to_port: 0 },
+      ],
+    }
+    const issue = validate(graph).find((i) => i.code === 'FAN_OUT_COPIES')
+    expect(issue?.severity).toBe('INFO')
+    expect(issue?.nodeId).toBe('src1')
+    expect(hasErrors(validate(graph))).toBe(false)
+  })
+
+  it('no FAN_OUT_COPIES for a Splitter, for Chance success+failure, or a Gate that is only pulled through', () => {
+    const graph: GSSGraph = {
+      ...EMPTY_GRAPH,
+      nodes: [
+        { id: 'src', type: 1, label: 'Src', position: { x: 0, y: 0 }, data: { resource: 'Gold', rate: 1 } },
+        { id: 'split', type: 7, label: 'Split', position: { x: 0, y: 0 }, data: { split_mode: 0, output_count: 2, weights: '1,1' } },
+        { id: 'ch', type: 5, label: 'Chance', position: { x: 0, y: 0 }, data: { success_chance: 50 } },
+        { id: 'a', type: 0, label: 'A', position: { x: 0, y: 0 }, data: { resource: 'Gold', capacity: 100 } },
+        { id: 'b', type: 0, label: 'B', position: { x: 0, y: 0 }, data: { resource: 'Gold', capacity: 100 } },
+        { id: 'gate', type: 4, label: 'Gate', position: { x: 0, y: 0 }, data: { variable: 'Gold', operator: 0, value: 1 } },
+        { id: 'd1', type: 3, label: 'D1', position: { x: 0, y: 0 }, data: { resource: 'Gold', rate: 1 } },
+        { id: 'd2', type: 3, label: 'D2', position: { x: 0, y: 0 }, data: { resource: 'Gold', rate: 1 } },
+      ],
+      connections: [
+        { from_node: 'src', to_node: 'split', from_port: 0, to_port: 0 },
+        { from_node: 'split', to_node: 'ch', from_port: 0, to_port: 0 },
+        { from_node: 'split', to_node: 'b', from_port: 0, to_port: 0 },
+        { from_node: 'ch', to_node: 'a', from_port: 0, to_port: 0 },
+        { from_node: 'ch', to_node: 'b', from_port: 1, to_port: 0 },
+        { from_node: 'a', to_node: 'gate', from_port: 0, to_port: 0 },
+        { from_node: 'gate', to_node: 'd1', from_port: 0, to_port: 0 },
+        { from_node: 'gate', to_node: 'd2', from_port: 0, to_port: 0 },
+      ],
+    }
+    expect(validate(graph).some((i) => i.code === 'FAN_OUT_COPIES')).toBe(false)
+  })
+
   it('duplicate node IDs produce DUPLICATE_ID error', () => {
     const graph: GSSGraph = {
       ...VALID_MINIMAL,

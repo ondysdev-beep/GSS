@@ -22,7 +22,9 @@ see [DEVLOG.md](./DEVLOG.md).
 - Saving clears the "Unsaved" marker; templates, samples, imports, version restores and "New" ask before discarding unsaved work.
 - The Gate inspector asks for a resource name (the gate compares resource totals), with suggestions.
 - Typing into number fields no longer writes 0 for intermediate values; Settings "Default duration / Δt / seed", "Edge style", "Show node subtitles" and "Auto-save interval" now take effect.
-- Validation issues update live as you edit.
+- Validation issues update live as you edit, show node names instead of internal IDs, and stay folded into one line while there are only warnings.
+- New: every node has a "How does this node work?" section in the inspector, and there is a full node reference in `docs/NODE_REFERENCE.md`.
+- New: an info message when a node sends its output to several connections. Flow is copied to each of them, not divided; use a Splitter to divide it.
 
 **Samples, templates, exports**
 - All 12 samples and 5 templates now run as described (several produced nothing), and loading a sample no longer breaks Save.
@@ -36,6 +38,8 @@ see [DEVLOG.md](./DEVLOG.md).
 
 **Desktop / web**
 - GSS PRO is distributed only through itch.io: PRO installers are no longer attached to the public GitHub release and the public web version is FREE only. A PRO install shows a "new version on itch.io" notice instead of updating itself; FREE keeps automatic updates.
+- The FREE edition is published on itch.io automatically with every release, next to GitHub.
+- macOS: one universal `.dmg` for Apple Silicon and Intel.
 - Release builds keep the real app icon (CI used to replace it with a grey square).
 - The web version no longer stores an Anthropic API key in browser storage (the AI Generator is desktop-only).
 

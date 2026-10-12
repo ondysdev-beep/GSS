@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { useGraphStore } from '../../store/graphStore'
 import { NodeType } from '../../types/graph'
 import type { NodeData } from '../../types/graph'
-import { NODE_TYPE_COLORS, NODE_TYPE_NAMES } from './nodeCatalog'
+import { NODE_TYPE_COLORS, NODE_TYPE_DOCS, NODE_TYPE_NAMES } from './nodeCatalog'
 import { validateFormulaSyntax } from '../../core/FormulaEvaluator'
 
 // ==================== Pomocné UI komponenty ====================
@@ -382,6 +382,19 @@ export function NodeInspector({ selectedNodeId }: NodeInspectorProps) {
         </span>
         <span className="text-muted text-[9px] ml-auto font-mono truncate max-w-[90px]" title={node.id}>{node.id}</span>
       </div>
+
+      {/* Jak uzel funguje — text z nodeCatalog (podrobněji docs/NODE_REFERENCE.md) */}
+      {NODE_TYPE_DOCS[node.type] && (
+        <details className="group text-[10px] text-white/50 leading-relaxed">
+          <summary className="cursor-pointer list-none text-accent/80 hover:text-accent flex items-center gap-1">
+            <span className="group-open:rotate-90 transition-transform inline-block">›</span>
+            How does this node work?
+          </summary>
+          <div className="mt-1.5 p-2 bg-white/5 rounded space-y-1.5">
+            {NODE_TYPE_DOCS[node.type].map((p, i) => <p key={i}>{p}</p>)}
+          </div>
+        </details>
+      )}
 
       {/* Název uzlu */}
       <Field label="Node Name">

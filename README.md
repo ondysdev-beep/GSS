@@ -20,7 +20,7 @@ it isn't repeated here (see [CHANGELOG.md](./CHANGELOG.md) for what's new).
 3. GSS appears in the Start menu
 
 ### macOS (Apple Silicon or Intel)
-1. Download the `.dmg` for your architecture (`aarch64` = Apple Silicon, `x64` = Intel)
+1. Download the `.dmg` (one universal build for both Apple Silicon and Intel)
 2. Drag GSS into Applications
 
 (macOS builds are currently FREE edition only.)
@@ -86,6 +86,10 @@ sudo dpkg -i gss_*_amd64.deb
 | **Timer** | Exact pulse every N seconds (e.g. daily reward) |
 | **Formula** | Computed output from a safe expression (e.g. `level * 1.2`) |
 | **Player Action** | Simulated player-triggered action, stochastic average cadence |
+
+How each node behaves tick by tick, its fields and common patterns:
+**[docs/NODE_REFERENCE.md](./docs/NODE_REFERENCE.md)**. The short version
+is in the app: select a node and open "How does this node work?".
 
 ---
 

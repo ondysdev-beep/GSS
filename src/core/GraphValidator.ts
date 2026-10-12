@@ -53,6 +53,7 @@ export function validate(graph: GSSGraph): ValidationIssue[] {
   _checkNodeIdsAndTypes(nodes, issues)
   _checkDuplicateIds(nodes, issues)
   _checkOrphanNodes(nodes, connections, issues)
+  _checkFanOutCopies(nodes, connections, issues)
   _checkUnreachablePools(nodes, connections, issues)
   _checkMissingConnectionTargets(nodes, connections, issues)
   _checkNegativeValues(nodes, issues)
@@ -148,6 +149,54 @@ function _checkOrphanNodes(
         nodeId: nid,
       })
     }
+  }
+}
+
+// Uzly, které tok aktivně posílají dál. Pool, Drain a Splitter sem nepatří:
+// z poolu se jen bere (Drain/Converter si tahají), Splitter tok dělí.
+const PUSH_NODE_TYPES = new Set<number>([
+  NodeType.SOURCE, NodeType.CONVERTER, NodeType.GATE, NodeType.CHANCE,
+  NodeType.TIMER, NodeType.FORMULA, NodeType.PLAYER_ACTION,
+])
+
+/**
+ * Fan-out = kopie (viz TickEngine getSemanticsNotes): uzel se dvěma a více
+ * spojeními z jednoho výstupu pošle CELÉ množství do každého z nich. Je to
+ * záměrné pravidlo enginu, ale snadno se splete s dělením — proto INFO.
+ */
+function _checkFanOutCopies(
+  nodes: NodeLike[],
+  connections: ConnLike[],
+  issues: ValidationIssue[],
+): void {
+  const byId = new Map(nodes.map((n) => [String(n.id), n]))
+  const outCount = new Map<string, number>()
+  const fedByPush = new Set<string>()
+  for (const conn of connections) {
+    const from = byId.get(String(conn.from_node))
+    if (!from) continue
+    if (from.type !== NodeType.POOL) fedByPush.add(String(conn.to_node))
+    // Chance má dva výstupy (úspěch/neúspěch) — kopie se počítá po portech.
+    const port = from.type === NodeType.CHANCE ? Number(conn.from_port) || 0 : 0
+    const key = `${String(from.id)}#${port}`
+    outCount.set(key, (outCount.get(key) ?? 0) + 1)
+  }
+  const reported = new Set<string>()
+  for (const [key, count] of outCount) {
+    if (count < 2) continue
+    const nid = key.slice(0, key.lastIndexOf('#'))
+    const node = byId.get(nid)
+    if (!node || !PUSH_NODE_TYPES.has(node.type) || reported.has(nid)) continue
+    // Gate, přes který se jen bere z poolu (Pool → Gate → Drain), nic nekopíruje.
+    if (node.type === NodeType.GATE && !fedByPush.has(nid)) continue
+    reported.add(nid)
+    const name = typeof node.label === 'string' && node.label.trim() ? node.label.trim() : nid
+    issues.push({
+      code: 'FAN_OUT_COPIES',
+      severity: 'INFO',
+      message: `'${name}' sends the full amount to each of its ${count} connections (flow is copied, not divided). Put a Splitter after it if you want to divide the flow.`,
+      nodeId: nid,
+    })
   }
 }
 

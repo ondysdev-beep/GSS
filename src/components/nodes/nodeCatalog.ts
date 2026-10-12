@@ -67,6 +67,57 @@ export const NODE_TYPE_HINTS: Record<number, string> = {
   10: 'Simulated player-triggered action, average cadence',
 }
 
+/**
+ * "How it works" text shown in the node inspector. Describes what the tick
+ * engine actually does (core/TickEngine.ts) — keep in sync with it and with
+ * docs/NODE_REFERENCE.md.
+ */
+export const NODE_TYPE_DOCS: Record<number, string[]> = {
+  0: [
+    'Stores one resource, up to its capacity. Anything that would go over capacity is lost.',
+    'A pool never pushes anything on its own. Drains and Converters connected from it pull what they need.',
+    'If the resource field is empty, the pool takes the first resource that flows into it.',
+  ],
+  1: [
+    'Every tick it produces rate × seconds of its resource and sends it to every connected node.',
+    'With two or more connections, each one gets the full amount (it is copied, not divided). Put a Splitter after it to divide the flow.',
+  ],
+  2: [
+    'Every tick it pulls its input resource from the pools connected into it, up to input amount × (seconds ÷ cycle time), and turns it into output in the same ratio.',
+    'Partial input gives partial output, so a half-empty pool means half the production.',
+    'The output goes to every connected node (copied, not divided). Flow pushed into a converter is buffered, at most one tick’s worth.',
+  ],
+  3: [
+    'Every tick it removes rate × seconds of its resource from the pools connected into it, in connection order.',
+    'It only takes what is there: an empty pool simply stops the drain.',
+  ],
+  4: [
+    'Opens when the TOTAL of a resource across all pools meets the condition (for example Gold > 50). The condition is checked when the simulation starts and at the end of every tick, so a change takes effect on the next tick.',
+    'Open: flow sent into it passes to all of its outputs, and Drains or Converters behind it can pull through it. Closed: both are blocked.',
+  ],
+  5: [
+    'Rolls once every time flow arrives. On success the whole amount goes out of the green output, on failure out of the red one.',
+    'It does not split flow proportionally. For a steady 70 / 30 split use a Splitter in weighted mode.',
+    'Rolls use the simulation seed, so the same seed gives the same results.',
+  ],
+  7: [
+    'Divides incoming flow between all of its connections.',
+    'Equal mode: each output gets amount ÷ number of outputs. Weighted mode: weights apply in connection order, and missing or invalid weights count as 1.',
+  ],
+  8: [
+    'Sends a fixed amount to every connected node once per interval. The first pulse comes after the first full interval, not at t = 0.',
+    'Use it for exact, regular rewards. For irregular player behaviour use Player Action.',
+  ],
+  9: [
+    'Every tick it evaluates the expression as a rate per second and produces result × seconds of its output resource. A negative result produces nothing.',
+    'Variables: any resource name (its total across all pools) and tick (the tick number). Supports numbers, + − × ÷ and parentheses. Unknown names count as 0.',
+  ],
+  10: [
+    'Simulates a player action, such as clicking a button: on average once every cadence seconds it sends its amount to every connected node.',
+    'The timing is random (seeded). For an exact interval use Timer.',
+  ],
+}
+
 const DEFAULT_DATA: Record<number, Record<string, unknown>> = {
   0: { resource: 'Gold', capacity: 100, initial_amount: 0 },
   1: { resource: 'Gold', rate: 5 },

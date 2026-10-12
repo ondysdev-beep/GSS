@@ -46,8 +46,10 @@ const pubDate = new Date().toISOString()
 const PLATFORMS = [
   { key: 'windows-x86_64', match: (n) => /_x64-setup\.exe$/.test(n) },
   { key: 'linux-x86_64', match: (n) => /_amd64\.AppImage$/.test(n) },
-  { key: 'darwin-aarch64', match: (n) => /aarch64.*\.app\.tar\.gz$/.test(n) },
-  { key: 'darwin-x86_64', match: (n) => /(x64|x86_64).*\.app\.tar\.gz$/.test(n) },
+  // macOS is built as one universal bundle ("…universal.app.tar.gz"), which
+  // serves both architectures; per-architecture names are still recognised.
+  { key: 'darwin-aarch64', match: (n) => /(aarch64|universal).*\.app\.tar\.gz$/.test(n) },
+  { key: 'darwin-x86_64', match: (n) => /(x64|x86_64|universal).*\.app\.tar\.gz$/.test(n) },
 ]
 
 function manifestFor(prefix) {
