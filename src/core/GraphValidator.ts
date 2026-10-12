@@ -138,10 +138,13 @@ function _checkOrphanNodes(
   for (const node of nodes) {
     const nid = String(node.id)
     if (!connectedIds.has(nid)) {
+      // Název místo interního ID ("node_1791840049492_1") — hláška se ukazuje
+      // živě pod editorem hned po vložení uzlu.
+      const name = typeof node.label === 'string' && node.label.trim() ? node.label.trim() : nid
       issues.push({
         code: 'ORPHAN_NODE',
         severity: 'WARNING',
-        message: `Node '${nid}' has no connections (orphan).`,
+        message: `'${name}' is not connected to anything yet — drag from its output handle to another node, or delete it.`,
         nodeId: nid,
       })
     }

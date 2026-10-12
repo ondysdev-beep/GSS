@@ -60,6 +60,8 @@ describe('GraphValidator', () => {
     const issues = validate(graph)
     expect(hasWarnings(issues)).toBe(true)
     expect(issues.some((i) => i.code === 'ORPHAN_NODE' && i.nodeId === 'orphan')).toBe(true)
+    // Hláška ukazuje název uzlu, ne interní ID.
+    expect(issues.find((i) => i.code === 'ORPHAN_NODE')?.message).toContain("'Orphan'")
   })
 
   it('missing connection target produces MISSING_TARGET error', () => {
