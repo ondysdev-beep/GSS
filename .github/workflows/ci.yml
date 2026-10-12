@@ -189,11 +189,12 @@ jobs:
       # `projectName` musí odpovídat existujícímu Cloudflare Pages projektu
       # (založí se automaticky při prvním nasazení, pokud ještě neexistuje —
       # ale je potřeba mít Cloudflare účet, ten si nemůžu založit za tebe).
+      # cloudflare/pages-action byl z GitHubu odstraněn (job padal už ve
+      # "Set up job" při stahování akce) — nástupcem je wrangler-action.
       - name: Deploy to Cloudflare Pages
         if: ${{ vars.CLOUDFLARE_PAGES_ENABLED == 'true' }}
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: gss-web
-          directory: dist-web-site
+          command: pages deploy dist-web-site --project-name=gss-web
