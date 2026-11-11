@@ -27,7 +27,7 @@ User-facing summary: CHANGELOG.md → "3.5.0". File-level notes:
 - `GraphValidator.ts`: FORMULA_VARIABLE warning for identifiers that match no resource (`formulaIdentifiers` in `FormulaEvaluator.ts`).
 
 ### Build
-- `src-tauri/Cargo.lock` regenerated: the committed lock still listed `tokio`/`tauri-plugin-fs` and lacked `tauri-plugin-updater`/`tauri-plugin-process`, so every CI build re-resolved dependencies. Now `cargo check --locked` passes for FREE and PRO.
+- `src-tauri/Cargo.lock` completed: the committed lock lacked `tauri-plugin-updater`/`tauri-plugin-process`, so every CI build resolved them to the newest release. Since tauri-plugin-updater 2.14 / tauri 2.12 that broke `tauri build` ("Found version mismatched Tauri packages" — Rust crates must share major.minor with `@tauri-apps/*` in package.json); the first v3.5.0 CI run failed on exactly that. `Cargo.toml` now pins the Tauri crates with `~` to the npm versions (tauri ~2.10, dialog ~2.6, store ~2.4, updater ~2.10, process ~2.3) and the lock only adds the two missing plugins to the 3.4.0 set. Upgrade both sides together.
 
 ## v3.4.0 — full code audit (all files)
 
