@@ -84,6 +84,7 @@ export function exportCSharp(
   struct('Timer', ['string id', 'string resource', 'float amount', 'float interval'])
   struct('Formula', ['string id', 'string expression', 'string outputResource'])
   struct('PlayerAction', ['string id', 'string resource', 'float amount', 'float cadence'])
+  struct('Upgrade', ['string id', 'string currency', 'float baseCost', 'float costGrowth', 'float bonusPerLevel', 'bool compound', 'int maxLevel'])
   struct('Connection', ['string fromNode', 'string toNode', 'int fromPort'])
 
   // ---- Data arrays ----
@@ -136,9 +137,20 @@ export function exportCSharp(
     const d = dataOf(n)
     return `new PlayerAction { id = ${quote(n.id)}, resource = ${quote(str(d.resource))}, amount = ${f(num(d.amount, 1))}, cadence = ${f(num(d.cadence, 5))} }`
   }))
+  array('Upgrades (boost the nodes they connect to; maxLevel 0 = unlimited)', 'Upgrade', 'upgrades', nodesOfType(graph, NodeType.UPGRADE).map((n) => {
+    const d = dataOf(n)
+    return `new Upgrade { id = ${quote(n.id)}, currency = ${quote(str(d.resource))}, baseCost = ${f(num(d.base_cost, 50))}, costGrowth = ${f(num(d.cost_growth, 1.15))}, bonusPerLevel = ${f(num(d.bonus_per_level, 10))}, compound = ${num(d.bonus_mode, 0) === 1 ? 'true' : 'false'}, maxLevel = ${int(Math.max(0, num(d.max_level, 0)))} }`
+  }))
   array('Connections (fromPort: Chance 0 = success, 1 = failure)', 'Connection', 'connections', graph.connections.map((c) =>
     `new Connection { fromNode = ${quote(c.from_node)}, toNode = ${quote(c.to_node)}, fromPort = ${int(num(c.from_port, 0))} }`))
 
+  // Stejné vzorce jako TickEngine (upgradeCost / upgradeMultiplier).
+  L.push('    /// <summary>Price of the next level of an upgrade that is currently at <paramref name="level"/>.</summary>')
+  L.push('    public static float UpgradeCost(Upgrade u, int level) => u.baseCost * Mathf.Pow(u.costGrowth, level);')
+  L.push('')
+  L.push('    /// <summary>Production (or capacity) multiplier an upgrade gives at <paramref name="level"/>.</summary>')
+  L.push('    public static float UpgradeMultiplier(Upgrade u, int level) =>')
+  L.push('        Mathf.Max(0f, u.compound ? Mathf.Pow(1f + u.bonusPerLevel / 100f, level) : 1f + u.bonusPerLevel / 100f * level);')
   L.push('}')
   L.push('')
   return L.join('\n')

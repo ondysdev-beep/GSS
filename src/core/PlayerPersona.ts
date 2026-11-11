@@ -5,6 +5,7 @@ import type { RNGInstance } from './SimRNG'
 import { createRNG } from './SimRNG'
 import { initState, simulateTick } from './TickEngine'
 import { validateScenarioTiming, resolveSeed, scenarioTickCount } from './ScenarioRunner'
+import { createMilestoneTracker } from './Milestones'
 import type { GSSGraph } from '../types/graph'
 import { NodeType } from '../types/graph'
 import type { Persona, PersonaStrategy } from '../types/simulation'
@@ -165,6 +166,8 @@ export interface PersonaRunResult {
   time_series: PersonaRunFrame[]
   total_spent: number
   purchase_count: number
+  /** Milestone ID → time reached by this persona, -1 = not reached (only for graphs with milestones). */
+  milestone_times?: Record<string, number>
 }
 
 export interface PersonaScenario {
@@ -190,6 +193,8 @@ export function runPersonaSimulation(
   let state = initState(graph)
   const personaState = initPersonaState(persona)
   const timeSeries: PersonaRunFrame[] = [{ time: 0, total_wealth: _totalWealth(state.pools) }]
+  const milestones = createMilestoneTracker(graph)
+  milestones.update(state, 0)
 
   const ticks = scenarioTickCount(scenario.duration, scenario.dt)
   let lastSample = 0
@@ -199,6 +204,8 @@ export function runPersonaSimulation(
     const elapsed = totalTicks * scenario.dt
 
     personaTick(persona, personaState, elapsed, state.pools, graph, personaRng)
+    // Po útratě persony — milník měří, co hráč skutečně má.
+    milestones.update(state, elapsed)
 
     if (elapsed - lastSample >= scenario.sampling_interval - 1e-9 || totalTicks === ticks) {
       timeSeries.push({
@@ -209,12 +216,15 @@ export function runPersonaSimulation(
     }
   }
 
-  return {
+  const result: PersonaRunResult = {
     persona,
     time_series: timeSeries,
     total_spent: Math.round(personaState.total_spent * 10000) / 10000,
     purchase_count: personaState.purchases.length,
   }
+  const milestoneTimes = milestones.result()
+  if (milestoneTimes) result.milestone_times = milestoneTimes
+  return result
 }
 
 function _totalWealth(pools: Record<string, { amount: number }>): number {

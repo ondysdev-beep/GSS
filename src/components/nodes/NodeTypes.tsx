@@ -1,4 +1,4 @@
-// NodeTypes.tsx — Custom ReactFlow node components for all 10 GSS node types
+// NodeTypes.tsx — Custom ReactFlow node components for all 11 GSS node types
 
 import { memo } from 'react'
 import { Handle, Position } from 'reactflow'
@@ -277,6 +277,25 @@ const PlayerActionNode = memo(({ data }: NodeProps<GSSNodeData>) => {
 })
 PlayerActionNode.displayName = 'PlayerActionNode'
 
+// ==================== Upgrade node ====================
+
+const UpgradeNode = memo(({ data }: NodeProps<GSSNodeData>) => {
+  const d = dataOf<{ resource: string; base_cost: number; cost_growth: number; bonus_per_level: number; bonus_mode: number; max_level: number }>(data)
+  const bonus = d.bonus_mode === 1 ? `×${1 + (d.bonus_per_level ?? 10) / 100}` : `+${d.bonus_per_level ?? 10}%`
+  const max = d.max_level ? ` · max ${d.max_level}` : ''
+  return (
+    <NodeShell
+      color={NODE_TYPE_COLORS[11]}
+      typeLabel="UPGRADE"
+      label={data.label}
+      subtitle={`${d.base_cost ?? 50} ${d.resource ?? ''} ×${d.cost_growth ?? 1.15} · ${bonus}/lvl${max}`}
+      liveValue={data.liveValue}
+      handles="both"
+    />
+  )
+})
+UpgradeNode.displayName = 'UpgradeNode'
+
 // ==================== Registry ====================
 
 export const customNodeTypes = {
@@ -290,4 +309,5 @@ export const customNodeTypes = {
   timer:         TimerNode,
   formula:       FormulaNode,
   player_action: PlayerActionNode,
+  upgrade:       UpgradeNode,
 }

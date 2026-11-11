@@ -43,6 +43,8 @@ export interface SimState {
   chance_rolls: Record<string, ChanceRollStats>
   splitter_data: Record<string, SplitterRuntime>
   timer_data: Record<string, TimerRuntime>
+  /** Upgrade node ID → purchased level. Optional: states created before Upgrade nodes existed lack it. */
+  upgrade_levels?: Record<string, number>
 }
 
 // One sampled tick of trace data (for ReplayUI — lighter than full SimState)
@@ -112,6 +114,7 @@ export interface TimeSeriesFrame {
   time: number
   pools: Record<string, number>     // pool_id → amount
   gates: Record<string, boolean>    // gate_id → open/closed
+  upgrades?: Record<string, number> // upgrade_id → level (only in graphs with Upgrade nodes)
 }
 
 export interface RunSummary {
@@ -121,6 +124,12 @@ export interface RunSummary {
   time_to_threshold: Record<string, number>  // -1 if never reached
   total_ticks: number
   elapsed: number
+  /** Upgrade node ID → final level (only in graphs with Upgrade nodes). */
+  upgrade_levels?: Record<string, number>
+  /** Upgrade node ID → simulated time at which each level was bought (index 0 = level 1). */
+  upgrade_times?: Record<string, number[]>
+  /** Milestone ID → time it was reached, -1 = not reached (only for graphs with milestones). */
+  milestone_times?: Record<string, number>
 }
 
 export interface ChanceStat {

@@ -1,5 +1,34 @@
 # GSS Development Log
 
+## v3.5.0 — Upgrade node, milestones, stress-test fixes
+
+User-facing summary: CHANGELOG.md → "3.5.0". File-level notes:
+
+### Upgrade node (`NodeType.UPGRADE = 11`)
+- `types/graph.ts`: `UpgradeData` (`resource`, `base_cost`, `cost_growth`, `bonus_per_level`, `bonus_mode`, `max_level`). `types/simulation.ts`: optional `SimState.upgrade_levels`, `TimeSeriesFrame.upgrades`, `RunSummary.upgrade_levels` / `upgrade_times` (only present for graphs with Upgrade nodes, so older reports keep their shape).
+- `TickEngine.ts`: new step 7 (after Drains, before Gates) buys every affordable level (`upgradeCost = base × growth^level`, capped at 1000 purchases per tick, zero cost never buys); `_availableFromConnected` checks affordability through open gates without consuming. Boosts from previous ticks (`upgradeBoosts`, `upgradeMultiplier`, multiplier capped at 1e15) scale Source/Timer/Player Action amounts, Converter output, Formula results and Pool capacity. `TICK_SPEC_VERSION` unchanged — graphs without Upgrade nodes give identical results.
+- `ScenarioRunner.ts` records level purchase times; `GraphValidator.ts` adds UPGRADE_INPUT / UPGRADE_TARGET / UPGRADE_COST and value checks; `BottleneckAnalyzer.ts` ignores boost connections as flow and treats boosted producers as unknown production.
+- UI: `nodeCatalog.ts`, `NodeTypes.tsx` (`UpgradeNode`), `NodeInspector.tsx` (`UpgradeFields` with a cost/bonus preview), `GraphEditor.tsx` (dashed boost edges with "Lv N · ×M" in replay, boosted capacity in fill bars), `FlowEdge.tsx` (`isBoost`), `IntelligenceDashboard.tsx` / `ProductionSummaryChart.tsx` (boosted capacity), Parameter Sweep fields, `TemplateCustomizer` scales `base_cost`.
+- Exporters: C# (`Upgrade` struct + `UpgradeCost`/`UpgradeMultiplier`), GDScript (exports + static funcs), TypeScript (`GSSUpgradeConfig` + helpers, verified to compile under `strict`). AI generator system prompt documents type 11.
+- Sample `public/samples/idle_upgrades.json`.
+
+### Milestones
+- `types/graph.ts`: `GSSGraph.milestones?: Milestone[]` (`resource` total or `upgrade` level), kept by `GraphNormalizer.ts` (broken entries repaired), validated (MILESTONE_TARGET), editable via `graphStore.setMilestones` (undoable).
+- `core/Milestones.ts`: `createMilestoneTracker` checked every tick in `ScenarioRunner` (`summary.milestone_times`) and `PlayerPersona` (`milestone_times` per persona, measured after the persona's spending).
+- UI: `MilestonesPanel.tsx` (Analysis tab), reference lines in `WealthOverTimeChart.tsx` (numeric X axis), per-persona table in `MultiPersonaChart.tsx`.
+
+### Large numbers
+- `core/formatNumber.ts`: `formatNumber` (K/M/B/T, then `1.23e15`), `formatMultiplier`, `formatDuration`; used in chart axes/tooltips, result tables and replay values. Display only.
+
+### Fixes from a randomized stress test (13 samples, 5 templates, 8000 generated graphs through simulation, analysis, exports and save/load)
+- `TickEngine.ts`: a routing loop that branches back into itself visited up to 2^64 paths (app freeze) — `MAX_ROUTE_HOPS = 2048` per delivered/consumed flow; `GraphValidator.ts` reports such loops as ROUTING_LOOP **error** (`_findBranchingLoopNodes`; Chance counted per port, so a retry loop stays a warning).
+- `DiffViewerPanel.tsx`: no health-score simulation for graphs with errors (ran on every edit), FREE duration limit applied.
+- `useAutoSave.ts`: saves the open graph even when clean (a restart used to restore the previously edited graph after Open/New). `useVersionHistory.ts`: drops oldest snapshots when localStorage is full instead of silently stopping.
+- `GraphValidator.ts`: FORMULA_VARIABLE warning for identifiers that match no resource (`formulaIdentifiers` in `FormulaEvaluator.ts`).
+
+### Build
+- `src-tauri/Cargo.lock` regenerated: the committed lock still listed `tokio`/`tauri-plugin-fs` and lacked `tauri-plugin-updater`/`tauri-plugin-process`, so every CI build re-resolved dependencies. Now `cargo check --locked` passes for FREE and PRO.
+
 ## v3.4.0 — full code audit (all files)
 
 User-facing summary: CHANGELOG.md → "3.4.0". File-level notes:

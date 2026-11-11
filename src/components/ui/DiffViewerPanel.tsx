@@ -17,10 +17,13 @@ import { diffGraphs, formatDiffChange, type DiffSeverity } from '../../core/Grap
 import { runScenario } from '../../core/ScenarioRunner'
 import { buildSimulationContext } from '../../core/ScenarioRunner'
 import { calculateHealthScore } from '../../core/HealthScoreCalculator'
+import { validate, hasErrors } from '../../core/GraphValidator'
+import { useLicenseStore } from '../../store/licenseStore'
 import { normalizeGraph } from '../../core/GraphNormalizer'
 import { useSimulationStore } from '../../store/simulationStore'
 import type { GSSGraph } from '../../types/graph'
 import type { HealthScore, Scenario } from '../../types/simulation'
+import { FREE_TIER_LIMITS } from '../../types/simulation'
 
 const SEVERITY_COLOR: Record<DiffSeverity, string> = {
   BREAKING: 'text-danger',
@@ -29,6 +32,10 @@ const SEVERITY_COLOR: Record<DiffSeverity, string> = {
 }
 
 function safeHealthScore(graph: GSSGraph, scenario: Scenario): HealthScore | null {
+  // Graf s chybami se nesimuluje nikde jinde v appce — tady by navíc běžel
+  // při každé úpravě grafu a neplatná data (smyčky, nulové časy) ho umí
+  // extrémně zpomalit.
+  if (hasErrors(validate(graph))) return null
   try {
     // Obě verze se simulují se STEJNÝM scénářem a seedem, jinak by rozdíl
     // skóre míchal změnu grafu s náhodou (a dřív se ignoroval scénář uživatele).
@@ -45,7 +52,13 @@ function safeHealthScore(graph: GSSGraph, scenario: Scenario): HealthScore | nul
 
 export function DiffViewerPanel() {
   const graph = useGraphStore((s) => s.graph)
-  const scenario = useSimulationStore((s) => s.scenario)
+  const userScenario = useSimulationStore((s) => s.scenario)
+  const isPro = useLicenseStore((s) => s.license?.isPro ?? false)
+  // Stejný limit délky jako hlavní běh ve FREE (useSimulation.ts).
+  const scenario = useMemo(
+    () => (isPro ? userScenario : { ...userScenario, duration: Math.min(userScenario.duration, FREE_TIER_LIMITS.MAX_DURATION_SECONDS) }),
+    [isPro, userScenario],
+  )
   const [snapshots] = useState<VersionSnapshot[]>(() => loadHistory())
   const [compareGraph, setCompareGraph] = useState<GSSGraph | null>(null)
   const [compareLabel, setCompareLabel] = useState<string>('')

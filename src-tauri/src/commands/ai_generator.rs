@@ -48,6 +48,8 @@ Node types and their required "data" fields:
 8 = TIMER: { "resource": string, "amount": number, "interval": number (seconds) }
 9 = FORMULA: { "expression": string (only +,-,*,/,parentheses,resource names,tick — no functions), "output_resource": string }
 10 = PLAYER_ACTION: { "resource": string, "amount": number, "cadence": number (avg seconds) }
+11 = UPGRADE: { "resource": string (currency), "base_cost": number, "cost_growth": number (e.g. 1.15), "bonus_per_level": number (%), "bonus_mode": 0|1 (0 = additive, 1 = compound), "max_level": number (0 = unlimited) }
+     Bought automatically when affordable. Connect the currency POOL -> UPGRADE, and UPGRADE -> the SOURCE/CONVERTER/TIMER/FORMULA/PLAYER_ACTION it boosts (or a POOL to boost its capacity).
 
 Position nodes left-to-right in rough production order, spaced ~200px apart on x, varied y to avoid overlap.
 Keep graphs modest: 4-12 nodes for a typical request unless the user explicitly asks for something larger."#;

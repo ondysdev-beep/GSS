@@ -12,6 +12,8 @@ export interface FlowEdgeData {
   animated?: boolean      // whether simulation is active
   edgeStyle?: 'default' | 'straight' | 'step'  // Settings → Edge style
   fromPort?: number       // connection's output port (Chance: 0 = success, 1 = failure)
+  isBoost?: boolean       // connection from an Upgrade node: carries a bonus, not resources
+  boostLabel?: string     // current multiplier of that bonus during replay (e.g. "×1.5")
 }
 
 function FlowEdge({
@@ -42,7 +44,11 @@ function FlowEdge({
   let strokeWidth = 1.5
   let dashArray: string | undefined
 
-  if (hasSimData) {
+  if (data?.isBoost) {
+    // Spoj z Upgrade nenese tok, jen bonus — vždy čárkovaně, bez animace toku.
+    strokeColor = '#cbd5e1aa'
+    dashArray = '2 4'
+  } else if (hasSimData) {
     if (isBlocked) {
       strokeColor = '#ef444466'
       strokeWidth = 1.5
@@ -62,7 +68,7 @@ function FlowEdge({
   }
 
   // Format flow rate for display
-  const flowLabel = flowRate >= 1000
+  const flowLabel = data?.isBoost ? data.boostLabel ?? '' : flowRate >= 1000
     ? `${(flowRate / 1000).toFixed(1)}k`
     : flowRate >= 100
       ? flowRate.toFixed(0)
@@ -103,7 +109,7 @@ function FlowEdge({
               whiteSpace: 'nowrap',
             }}
           >
-            {isBlocked ? '✗' : `${flowLabel}/t`}
+            {data?.isBoost ? flowLabel : isBlocked ? '✗' : `${flowLabel}/t`}
           </div>
         </EdgeLabelRenderer>
       )}

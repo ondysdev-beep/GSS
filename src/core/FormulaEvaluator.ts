@@ -163,6 +163,15 @@ export function evaluateFormula(expression: string, variables: Record<string, nu
   return result
 }
 
+/** Názvy proměnných (identifikátory) použité ve výrazu; pro neplatný výraz prázdné pole. */
+export function formulaIdentifiers(expression: string): string[] {
+  try {
+    return [...new Set(tokenize(expression).filter((t) => t.type === 'IDENT').map((t) => t.value))]
+  } catch {
+    return []
+  }
+}
+
 /**
  * Ověří, že výraz je syntakticky validní, aniž by vyžadoval skutečné proměnné
  * (pro GraphValidator). Jde čistě o SYNTAXI — dřív se výraz zkušebně

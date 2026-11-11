@@ -9,7 +9,7 @@
 // ale NEMĚNÍ význam dat (neplatné hodnoty dál hlásí GraphValidator).
 
 import { GSS_FORMAT_VERSION, NodeType } from '../types/graph'
-import type { GSSGraph, GSSNode, GSSConnection, NodeTypeValue } from '../types/graph'
+import type { GSSGraph, GSSNode, GSSConnection, Milestone, NodeTypeValue } from '../types/graph'
 import { TICK_SPEC_VERSION } from './TickEngine'
 
 export class GraphFormatError extends Error {
@@ -30,6 +30,7 @@ const TYPE_NAMES: Record<number, string> = {
   [NodeType.TIMER]: 'Timer',
   [NodeType.FORMULA]: 'Formula',
   [NodeType.PLAYER_ACTION]: 'Player Action',
+  [NodeType.UPGRADE]: 'Upgrade',
 }
 
 /** All node type IDs the engine understands. */
@@ -88,6 +89,10 @@ export function normalizeGraph(raw: unknown, fallbackName = 'Untitled Economy'):
   }
   if (Array.isArray(r.personas)) graph.personas = r.personas as GSSGraph['personas']
   if (Array.isArray(r.scenarios)) graph.scenarios = r.scenarios as GSSGraph['scenarios']
+  if (Array.isArray(r.milestones)) {
+    const milestones = (r.milestones as unknown[]).filter(isRecord).map(normalizeMilestone)
+    if (milestones.length > 0) graph.milestones = milestones
+  }
   if (isRecord(r.meta)) graph.meta = r.meta
   return graph
 }
@@ -114,6 +119,16 @@ function normalizeNode(n: Record<string, unknown>, index: number, usedIds: Set<s
       y: finite(pos.y) ?? 100 + Math.floor(index / 5) * 140,
     },
     data: (isRecord(n.data) ? { ...n.data } : {}) as unknown as GSSNode['data'],
+  }
+}
+
+function normalizeMilestone(m: Record<string, unknown>, index: number): Milestone {
+  return {
+    id: str(m.id) || `milestone_${index + 1}`,
+    label: str(m.label),
+    kind: m.kind === 'upgrade' ? 'upgrade' : 'resource',
+    target: str(m.target),
+    value: finite(m.value) ?? 0,
   }
 }
 

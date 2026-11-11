@@ -12,6 +12,7 @@ import { validate, hasErrors } from '../../core/GraphValidator'
 import { NodeType } from '../../types/graph'
 import type { RunReport, SweepParam } from '../../types/simulation'
 import { NumericInput } from './NumericInput'
+import { formatDuration, formatNumber } from '../../core/formatNumber'
 
 type DashMode = 'run' | 'ab' | 'mc' | 'sweep'
 
@@ -25,6 +26,7 @@ const SWEEP_FIELDS: Record<number, string[]> = {
   [NodeType.CHANCE]: ['success_chance'],
   [NodeType.TIMER]: ['amount', 'interval'],
   [NodeType.PLAYER_ACTION]: ['amount', 'cadence'],
+  [NodeType.UPGRADE]: ['base_cost', 'cost_growth', 'bonus_per_level'],
 }
 
 const inputCls = 'bg-bg border border-border rounded px-2 py-1 text-white'
@@ -255,10 +257,10 @@ export function SimulationDashboard() {
                   {Object.entries(compareReport.pool_diffs).map(([pid, d]) => (
                     <tr key={pid} className="border-b border-border/30">
                       <td className="py-1 pr-3 text-white">{pid}</td>
-                      <td className="py-1 pr-3">{d.final_a.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{d.final_b.toFixed(2)}</td>
+                      <td className="py-1 pr-3">{formatNumber(d.final_a)}</td>
+                      <td className="py-1 pr-3">{formatNumber(d.final_b)}</td>
                       <td className={`py-1 pr-3 ${d.delta > 0 ? 'text-green-400' : d.delta < 0 ? 'text-red-400' : 'text-muted'}`}>
-                        {d.delta > 0 ? '+' : ''}{d.delta.toFixed(2)}
+                        {d.delta > 0 ? '+' : ''}{formatNumber(d.delta)}
                       </td>
                       <td className="py-1">{d.pct_change.toFixed(1)} %</td>
                     </tr>
@@ -310,13 +312,13 @@ export function SimulationDashboard() {
                   {Object.entries(mcReport.pool_stats).map(([pid, s]) => (
                     <tr key={pid} className="border-b border-border/30">
                       <td className="py-1 pr-3 text-white">{pid}</td>
-                      <td className="py-1 pr-3">{s.mean.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{s.std.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{s.min.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{s.p10.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{s.p50.toFixed(2)}</td>
-                      <td className="py-1 pr-3">{s.p90.toFixed(2)}</td>
-                      <td className="py-1">{s.max.toFixed(2)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.mean)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.std)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.min)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.p10)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.p50)}</td>
+                      <td className="py-1 pr-3">{formatNumber(s.p90)}</td>
+                      <td className="py-1">{formatNumber(s.max)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -423,9 +425,9 @@ export function SimulationDashboard() {
                     {sweepReport.results.slice(0, 20).map((r, i) => (
                       <tr key={i} className="border-b border-border/30">
                         {Object.values(r.param_values).map((v, j) => (
-                          <td key={j} className="py-1 pr-3">{Number(v).toFixed(2)}</td>
+                          <td key={j} className="py-1 pr-3">{formatNumber(Number(v))}</td>
                         ))}
-                        <td className="py-1 text-accent">{r.metric_value.toFixed(2)}</td>
+                        <td className="py-1 text-accent">{formatNumber(r.metric_value)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -464,15 +466,15 @@ function RunSummaryTable({ report, label }: { report: RunReport; label: string }
           {pids.map((pid) => (
             <tr key={pid} className="border-b border-border/30">
               <td className="py-1 pr-3 text-white">{pid}</td>
-              <td className="py-1 pr-3">{final_values[pid].toFixed(2)}</td>
-              <td className="py-1 pr-3">{(min_values[pid] ?? 0).toFixed(2)}</td>
-              <td className="py-1">{(max_values[pid] ?? 0).toFixed(2)}</td>
+              <td className="py-1 pr-3">{formatNumber(final_values[pid])}</td>
+              <td className="py-1 pr-3">{formatNumber(min_values[pid] ?? 0)}</td>
+              <td className="py-1">{formatNumber(max_values[pid] ?? 0)}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="text-muted text-xs mt-2">
-        {report.summary.total_ticks} ticks · seed {report.seed_used} · {report.summary.elapsed.toFixed(1)} s simulated
+        {report.summary.total_ticks} ticks · seed {report.seed_used} · {formatDuration(report.summary.elapsed)} simulated
       </div>
     </div>
   )

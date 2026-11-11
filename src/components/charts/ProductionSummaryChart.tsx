@@ -12,6 +12,8 @@ import {
 } from 'recharts'
 import { useSimulationStore } from '../../store/simulationStore'
 import { useGraphStore } from '../../store/graphStore'
+import { formatNumber } from '../../core/formatNumber'
+import { upgradeBoosts } from '../../core/TickEngine'
 
 const BAR_COLORS = [
   '#3b82f6', '#22c55e', '#f97316', '#a855f7',
@@ -20,7 +22,7 @@ const BAR_COLORS = [
 
 export function ProductionSummaryChart() {
   const reportA = useSimulationStore((s) => s.reportA)
-  const nodes = useGraphStore((s) => s.graph.nodes)
+  const graph = useGraphStore((s) => s.graph)
 
   if (!reportA) {
     return (
@@ -32,9 +34,11 @@ export function ProductionSummaryChart() {
 
   const finalValues = reportA.summary.final_values
   // Kapacita z grafu — dřív bylo fill_pct natvrdo 0 a tooltip vždy psal "0% full".
+  // Včetně zvětšení kapacity Upgrade uzly (úrovně na konci běhu).
+  const boosts = upgradeBoosts(graph, reportA.summary.upgrade_levels)
   const capacityOf = (id: string): number | null => {
-    const cap = (nodes.find((n) => n.id === id)?.data as { capacity?: unknown } | undefined)?.capacity
-    return typeof cap === 'number' && cap > 0 ? cap : null
+    const cap = (graph.nodes.find((n) => n.id === id)?.data as { capacity?: unknown } | undefined)?.capacity
+    return typeof cap === 'number' && cap > 0 ? cap * (boosts.get(id) ?? 1) : null
   }
   const data = Object.entries(finalValues).map(([id, amount]) => {
     const cap = capacityOf(id)
@@ -55,12 +59,12 @@ export function ProductionSummaryChart() {
           tickLine={false}
           interval={0}
         />
-        <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} width={40} />
+        <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} width={44} tickFormatter={(v: number) => formatNumber(v)} />
         <Tooltip
           contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3a', fontSize: 11 }}
           labelStyle={{ color: '#9ca3af' }}
           formatter={(value: number, _name: string, props: { payload?: { fill_pct: number | null } }) => [
-            props.payload?.fill_pct != null ? `${value} (${props.payload.fill_pct}% of capacity)` : `${value}`,
+            props.payload?.fill_pct != null ? `${formatNumber(value)} (${props.payload.fill_pct}% of capacity)` : formatNumber(value),
             'Final amount',
           ]}
         />

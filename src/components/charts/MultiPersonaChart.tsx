@@ -13,6 +13,7 @@ import {
 import { useGraphStore } from '../../store/graphStore'
 import { useSimulationStore } from '../../store/simulationStore'
 import { runAllPersonaSimulations, type PersonaRunResult } from '../../core/PlayerPersona'
+import { formatDuration, formatNumber } from '../../core/formatNumber'
 import { validate, hasErrors } from '../../core/GraphValidator'
 import { useLicenseStore } from '../../store/licenseStore'
 import { FREE_TIER_LIMITS } from '../../types/simulation'
@@ -80,7 +81,7 @@ export function MultiPersonaChart() {
           <div className="flex gap-3 text-[10px]">
             {results.map((r) => (
               <span key={r.persona.name} style={{ color: PERSONA_COLORS[r.persona.name] }}>
-                {r.persona.name}: {r.purchase_count} purchases, spent {r.total_spent.toFixed(1)}
+                {r.persona.name}: {r.purchase_count} purchases, spent {formatNumber(r.total_spent)}
               </span>
             ))}
           </div>
@@ -98,10 +99,12 @@ export function MultiPersonaChart() {
           <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
             <XAxis dataKey="time" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} />
-            <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} width={40} />
+            <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} width={44} tickFormatter={(v: number) => formatNumber(v)} />
             <Tooltip
               contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3a', fontSize: 11 }}
               labelStyle={{ color: '#9ca3af' }}
+              formatter={(v: number) => formatNumber(v)}
+              labelFormatter={(t: number) => formatDuration(t)}
             />
             <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
             {results.map((r) => (
@@ -117,6 +120,37 @@ export function MultiPersonaChart() {
             ))}
           </LineChart>
         </ResponsiveContainer>
+      )}
+
+      {/* Milníky po personách — kdo se ke kterému cíli dostane kdy */}
+      {results && results.some((r) => r.milestone_times) && (graph.milestones ?? []).length > 0 && (
+        <table className="w-full text-[11px] text-left border-collapse mt-1">
+          <thead>
+            <tr className="text-muted border-b border-border">
+              <th className="py-1 pr-3 font-normal">Milestone</th>
+              {results.map((r) => (
+                <th key={r.persona.name} className="py-1 pr-3 font-normal" style={{ color: PERSONA_COLORS[r.persona.name] }}>{r.persona.name}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(graph.milestones ?? []).map((m) => (
+              <tr key={m.id} className="border-b border-border/30">
+                <td className="py-1 pr-3 text-white/80">{m.label.trim() || `${formatNumber(m.value)} ${m.target}`}</td>
+                {results.map((r) => {
+                  const t = r.milestone_times?.[m.id]
+                  return (
+                    <td key={r.persona.name} className="py-1 pr-3 font-mono">
+                      {t === undefined ? <span className="text-muted">—</span>
+                        : t < 0 ? <span className="text-warning">not reached</span>
+                          : formatDuration(t)}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )

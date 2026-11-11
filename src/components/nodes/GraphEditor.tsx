@@ -38,12 +38,14 @@ import { useSimulationStore } from '../../store/simulationStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { NodeType } from '../../types/graph'
 import type { GSSNode, GSSConnection } from '../../types/graph'
+import { upgradeBoosts, upgradeMultiplier } from '../../core/TickEngine'
+import { formatMultiplier, formatNumber } from '../../core/formatNumber'
 import type { TimeSeriesFrame } from '../../types/simulation'
 
 const GSS_TYPE_TO_RF: Record<number, string> = {
   0: 'pool', 1: 'source', 2: 'converter', 3: 'drain',
   4: 'gate', 5: 'chance', 7: 'splitter',
-  8: 'timer', 9: 'formula', 10: 'player_action',
+  8: 'timer', 9: 'formula', 10: 'player_action', 11: 'upgrade',
 }
 
 /** Keys the editor adds to RF node data during replay — preserved across store syncs. */
@@ -92,6 +94,7 @@ function buildEdges(
   return conns.map((c, i) => {
     const id = ids[i]
     const isChance = typeById.get(c.from_node) === NodeType.CHANCE
+    const isBoost = typeById.get(c.from_node) === NodeType.UPGRADE
     return {
       id,
       source: c.from_node,
@@ -100,7 +103,7 @@ function buildEdges(
       targetHandle: null,
       type: 'flow',
       selected: selected.has(id),
-      data: { ...(flow?.get(id) ?? { animated: false }), edgeStyle, fromPort: c.from_port },
+      data: { ...(flow?.get(id) ?? { animated: false }), edgeStyle, fromPort: c.from_port, isBoost },
     }
   })
 }
@@ -121,10 +124,23 @@ function computeFlowData(
 
   // Estimate per-edge flow rates from node data and pool deltas
   const edgeFlows: number[] = []
+  const boosts = upgradeBoosts({ nodes, connections: conns }, frame.upgrades)
 
   for (let i = 0; i < conns.length; i++) {
     const c = conns[i]
     const fromNode = nodeMap.get(c.from_node)
+
+    // Spoj z Upgrade: žádný tok, popisek ukazuje aktuální úroveň a násobitel.
+    if (fromNode?.type === NodeType.UPGRADE) {
+      const d = (fromNode.data ?? {}) as unknown as Record<string, unknown>
+      const level = frame.upgrades?.[c.from_node] ?? 0
+      const bonus = typeof d.bonus_per_level === 'number' ? d.bonus_per_level : 10
+      const m = upgradeMultiplier(bonus, d.bonus_mode === 1 ? 1 : 0, level)
+      edgeFlows.push(0)
+      map.set(ids[i], { flowRate: 0, maxFlowRate: 0, isGateBlocked: false, animated: true, boostLabel: `Lv ${level} · ×${formatMultiplier(m)}` })
+      continue
+    }
+
     const isGateBlocked = frame.gates[c.to_node] === false || frame.gates[c.from_node] === false
 
     let flowRate = 0
@@ -154,6 +170,7 @@ function computeFlowData(
       }
     }
 
+    if (fromNode && fromNode.type !== NodeType.POOL) flowRate *= boosts.get(c.from_node) ?? 1
     edgeFlows.push(flowRate)
     map.set(ids[i], { flowRate, maxFlowRate: 0, isGateBlocked, animated: true })
   }
@@ -203,26 +220,30 @@ function GraphEditorInner() {
     const ts = reportA.time_series
     const frame = ts.find((f) => f.time >= replayTick) ?? ts[ts.length - 1]
     if (!frame) return
+    // Kapacita poolu zvětšená Upgradem v daném okamžiku replaye.
+    const boosts = upgradeBoosts(graph, frame.upgrades)
     setNodes((nds: Node[]) =>
       nds.map((n) => {
         const amount = frame.pools[n.id]
         const gate = frame.gates?.[n.id]
-        const cap = (n.data as { data?: { capacity?: number } }).data?.capacity ?? 100
+        const level = frame.upgrades?.[n.id]
+        const cap = ((n.data as { data?: { capacity?: number } }).data?.capacity ?? 100) * (boosts.get(n.id) ?? 1)
         if (amount !== undefined) {
           return {
             ...n,
             data: {
               ...n.data,
               fillPct: Math.min(1, Math.max(0, amount / Math.max(cap, 1))),
-              liveValue: amount.toFixed(0),
+              liveValue: formatNumber(Math.round(amount)),
             },
           }
         }
         if (gate !== undefined) return { ...n, data: { ...n.data, isActive: gate } }
+        if (level !== undefined) return { ...n, data: { ...n.data, liveValue: `Lv ${level}` } }
         return n
       }),
     )
-  }, [replayTick, reportA, setNodes])
+  }, [replayTick, reportA, setNodes, graph])
 
   // ── Edges: store connections + animated flow data from the replay frame ───
   useEffect(() => {

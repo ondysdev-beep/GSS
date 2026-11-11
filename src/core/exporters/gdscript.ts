@@ -97,6 +97,14 @@ export function exportGDScript(
     `@export var ${v}_amount: float = ${fl(num(d.amount, 1))}`,
     `@export var ${v}_cadence: float = ${fl(num(d.cadence, 5))}`,
   ])
+  section('Upgrades', NodeType.UPGRADE, (_n, v, d) => [
+    `@export var ${v}_currency: String = ${quote(str(d.resource))}`,
+    `@export var ${v}_base_cost: float = ${fl(num(d.base_cost, 50))}`,
+    `@export var ${v}_cost_growth: float = ${fl(num(d.cost_growth, 1.15))}`,
+    `@export var ${v}_bonus_per_level: float = ${fl(num(d.bonus_per_level, 10))}`,
+    `@export_enum("Additive", "Compound") var ${v}_bonus_mode: int = ${num(d.bonus_mode, 0) === 1 ? 1 : 0}`,
+    `@export var ${v}_max_level: int = ${Math.trunc(Math.max(0, num(d.max_level, 0)))}`,
+  ])
 
   // Connections jako Dictionary array (port: Chance 0 = success, 1 = failure)
   if (graph.connections.length > 0) {
@@ -106,6 +114,19 @@ export function exportGDScript(
       L.push(`\t{ "from": ${quote(c.from_node)}, "to": ${quote(c.to_node)}, "port": ${Math.trunc(num(c.from_port, 0))} },`)
     }
     L.push(']')
+    L.push('')
+  }
+
+  if (nodesOfType(graph, NodeType.UPGRADE).length > 0) {
+    // Stejné vzorce jako TickEngine (upgradeCost / upgradeMultiplier).
+    L.push('# Price of the next level of an upgrade that is currently at `level`.')
+    L.push('static func upgrade_cost(base_cost: float, cost_growth: float, level: int) -> float:')
+    L.push('\treturn base_cost * pow(cost_growth, level)')
+    L.push('')
+    L.push('# Production (or capacity) multiplier an upgrade gives at `level` (bonus_mode 1 = compound).')
+    L.push('static func upgrade_multiplier(bonus_per_level: float, bonus_mode: int, level: int) -> float:')
+    L.push('\tvar m := pow(1.0 + bonus_per_level / 100.0, level) if bonus_mode == 1 else 1.0 + bonus_per_level / 100.0 * level')
+    L.push('\treturn maxf(0.0, m)')
     L.push('')
   }
 

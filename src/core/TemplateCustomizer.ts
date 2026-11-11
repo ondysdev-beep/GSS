@@ -27,7 +27,7 @@ export interface TemplateCustomizeOptions {
 const SCALABLE_FIELDS = new Set([
   'rate', 'capacity', 'initial_amount',
   'input_amount', 'output_amount',
-  'amount', 'value',
+  'amount', 'value', 'base_cost',
 ])
 
 // Pole, jejichž string hodnota může referencovat název resource (viz Gate's

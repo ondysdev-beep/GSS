@@ -1,4 +1,4 @@
-// useAutoSave.ts — Auto-saves the graph to localStorage while it has unsaved changes.
+// useAutoSave.ts — Auto-saves the open graph to localStorage, so the app reopens where you left off.
 //
 // Interval comes from Settings → "Auto-save interval" (0 = disabled). It is a
 // real interval, not a debounce: the previous version restarted a 30 s timer
@@ -14,8 +14,10 @@ const AUTOSAVE_KEY = 'gss_autosave'
 let lastSavedJson: string | null = null
 
 function saveNow(): void {
-  const { graph, isDirty } = useGraphStore.getState()
-  if (!isDirty) return
+  // Ukládá se i "čistý" graf: dřív se po otevření jiného souboru nebo "New"
+  // (bez další úpravy) autosave neaktualizoval a po restartu se obnovil
+  // předchozí, už zavřený graf. Zbytečným zápisům brání porovnání JSON níže.
+  const { graph } = useGraphStore.getState()
   try {
     const json = JSON.stringify(graph)
     if (json === lastSavedJson) return

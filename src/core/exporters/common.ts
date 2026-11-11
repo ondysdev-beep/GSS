@@ -14,6 +14,7 @@ export const NODE_TYPE_NAMES: Record<number, string> = {
   [NodeType.TIMER]: 'Timer',
   [NodeType.FORMULA]: 'Formula',
   [NodeType.PLAYER_ACTION]: 'PlayerAction',
+  [NodeType.UPGRADE]: 'Upgrade',
 }
 
 export const GATE_OPERATORS = ['>', '>=', '<', '<=', '==', '!='] as const

@@ -7,6 +7,8 @@ import { NodeType } from '../../types/graph'
 import type { NodeData } from '../../types/graph'
 import { NODE_TYPE_COLORS, NODE_TYPE_DOCS, NODE_TYPE_NAMES } from './nodeCatalog'
 import { validateFormulaSyntax } from '../../core/FormulaEvaluator'
+import { upgradeCost, upgradeMultiplier } from '../../core/TickEngine'
+import { formatMultiplier, formatNumber } from '../../core/formatNumber'
 
 // ==================== Pomocné UI komponenty ====================
 
@@ -310,6 +312,53 @@ function PlayerActionFields({ data, onChange }: FieldsProps) {
   )
 }
 
+function UpgradeFields({ data, onChange }: FieldsProps) {
+  const baseCost = n(data.base_cost, 50)
+  const growth = n(data.cost_growth, 1.15)
+  const bonus = n(data.bonus_per_level, 10)
+  const mode = data.bonus_mode === 1 ? 1 : 0
+  const maxLevel = n(data.max_level, 0)
+  // Náhled křivky: kolik stojí a co dává několik prvních / pozdějších úrovní.
+  const preview = [1, 5, 10, 25, 50].filter((lvl) => maxLevel <= 0 || lvl <= maxLevel)
+  return (
+    <>
+      <Field label="Currency (resource)" hint="Paid from the pools connected into this node.">
+        <TextInput value={s(data.resource)} onChange={(v) => onChange('resource', v)} placeholder="Gold" list="gss-resource-names" />
+      </Field>
+      <Field label="Base cost (level 1)">
+        <NumberInput value={baseCost} onChange={(v) => onChange('base_cost', v)} min={0.001} step={10} />
+      </Field>
+      <Field label="Cost growth per level" hint="1.15 = every level costs 15 % more than the previous one.">
+        <NumberInput value={growth} onChange={(v) => onChange('cost_growth', v)} min={0.001} step={0.05} />
+      </Field>
+      <Field label="Bonus per level (%)">
+        <NumberInput value={bonus} onChange={(v) => onChange('bonus_per_level', v)} step={5} />
+      </Field>
+      <Field label="Bonus stacking">
+        <SelectInput
+          value={mode}
+          options={[{ value: 0, label: 'Additive (+10 %, +20 %, +30 %…)' }, { value: 1, label: 'Compound (×1.1, ×1.21, ×1.33…)' }]}
+          onChange={(v) => onChange('bonus_mode', v)}
+        />
+      </Field>
+      <Field label="Max level (0 = unlimited)">
+        <NumberInput value={maxLevel} onChange={(v) => onChange('max_level', Math.floor(v))} min={0} step={1} />
+      </Field>
+      {baseCost > 0 && growth > 0 && (
+        <div className="text-[10px] text-muted bg-white/5 rounded p-2 font-mono space-y-0.5">
+          {preview.map((lvl) => (
+            <div key={lvl} className="flex justify-between gap-2">
+              <span>Lv {lvl}</span>
+              <span>cost {formatNumber(upgradeCost(baseCost, growth, lvl - 1))}</span>
+              <span>×{formatMultiplier(upgradeMultiplier(bonus, mode, lvl))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 // ==================== Hlavní komponenta ====================
 
 interface NodeInspectorProps {
@@ -413,6 +462,7 @@ export function NodeInspector({ selectedNodeId }: NodeInspectorProps) {
         {node.type === NodeType.TIMER         && <TimerFields         data={data} onChange={updateField} />}
         {node.type === NodeType.FORMULA       && <FormulaFields       data={data} onChange={updateField} />}
         {node.type === NodeType.PLAYER_ACTION && <PlayerActionFields  data={data} onChange={updateField} />}
+        {node.type === NodeType.UPGRADE       && <UpgradeFields       data={data} onChange={updateField} />}
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ import type {
   SimulationContext,
 } from '../types/simulation'
 import { defaultScenario } from '../types/simulation'
+import { createMilestoneTracker } from './Milestones'
 
 export { defaultScenario }
 
@@ -98,6 +99,14 @@ export function runScenario(
     timeToThreshold[pid] = thresholds[pid] !== undefined && amt >= thresholds[pid] ? 0 : -1
   }
 
+  // Upgrade úrovně: čas každého nákupu (pro milníky typu "kdy si hráč koupí 10. úroveň").
+  const upgradeIds = Object.keys(state.upgrade_levels ?? {})
+  const upgradeTimes: Record<string, number[]> = {}
+  for (const uid of upgradeIds) upgradeTimes[uid] = []
+
+  const milestones = createMilestoneTracker(graph)
+  milestones.update(state, 0)
+
   // Initial frame (t = 0) so charts and replay start from the real starting state
   timeSeries.push(_frame(state, 0))
   let lastSample = 0
@@ -120,6 +129,13 @@ export function runScenario(
         timeToThreshold[pid] = elapsed
       }
     }
+
+    for (const uid of upgradeIds) {
+      const level = state.upgrade_levels?.[uid] ?? 0
+      const times = upgradeTimes[uid]
+      while (times.length < level) times.push(Math.round(elapsed * 1000) / 1000)
+    }
+    milestones.update(state, elapsed)
 
     const isLast = totalTicks === totalTicksPlanned
     if (elapsed - lastSample >= samplingInterval - TIME_EPSILON || isLast) {
@@ -148,6 +164,12 @@ export function runScenario(
     total_ticks: totalTicks,
     elapsed: Math.round(totalTicks * dt * 1000) / 1000,
   }
+  if (upgradeIds.length > 0) {
+    summary.upgrade_levels = { ...state.upgrade_levels }
+    summary.upgrade_times = upgradeTimes
+  }
+  const milestoneTimes = milestones.result()
+  if (milestoneTimes) summary.milestone_times = milestoneTimes
 
   return {
     tick_spec_version: TICK_SPEC_VERSION,
@@ -170,6 +192,10 @@ function _frame(state: SimState, elapsed: number): TimeSeriesFrame {
   }
   for (const gid of Object.keys(state.gate_states)) {
     frame.gates[gid] = state.gate_states[gid]
+  }
+  // Jen u grafů s Upgrade uzly — ostatní snímky (a jejich JSON/CSV) zůstávají beze změny.
+  if (state.upgrade_levels && Object.keys(state.upgrade_levels).length > 0) {
+    frame.upgrades = { ...state.upgrade_levels }
   }
   return frame
 }

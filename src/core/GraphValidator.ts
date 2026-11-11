@@ -6,7 +6,7 @@
 import { NodeType } from '../types/graph'
 import type { GSSGraph } from '../types/graph'
 import type { ValidationIssue } from '../types/simulation'
-import { validateFormulaSyntax } from './FormulaEvaluator'
+import { validateFormulaSyntax, formulaIdentifiers } from './FormulaEvaluator'
 import { KNOWN_NODE_TYPES } from './GraphNormalizer'
 
 type NodeLike = GSSGraph['nodes'][number]
@@ -68,6 +68,8 @@ export function validate(graph: GSSGraph): ValidationIssue[] {
   _checkTimerNodes(nodes, issues)
   _checkFormulaNodes(nodes, issues)
   _checkPlayerActionNodes(nodes, issues)
+  _checkUpgradeNodes(nodes, connections, issues)
+  _checkMilestones(raw.milestones, nodes, issues)
 
   return issues
 }
@@ -205,10 +207,12 @@ function _checkUnreachablePools(
   connections: ConnLike[],
   issues: ValidationIssue[],
 ): void {
+  const upgradeIds = new Set(nodes.filter((n) => n.type === NodeType.UPGRADE).map((n) => String(n.id)))
   const hasIncoming = new Set<string>()
   const hasAny = new Set<string>()
   for (const conn of connections) {
-    hasIncoming.add(String(conn.to_node))
+    // Spoj z Upgrade nese jen bonus kapacity, žádný přítok.
+    if (!upgradeIds.has(String(conn.from_node))) hasIncoming.add(String(conn.to_node))
     hasAny.add(String(conn.to_node))
     hasAny.add(String(conn.from_node))
   }
@@ -479,7 +483,17 @@ function _checkRoutingLoops(
   if (routing.size === 0) return
   const routingConns = connections.filter((c) => routing.has(String(c.from_node)) && routing.has(String(c.to_node)))
   const loopNodes = _findCycleNodes([...routing], routingConns)
-  if (loopNodes.length > 0) {
+  const branching = _findBranchingLoopNodes(nodes, [...routing], routingConns)
+  if (branching.length > 0) {
+    // Ve smyčce s rozvětvením se počet cest toku každým průchodem násobí —
+    // výsledky by byly nesmyslné a simulace extrémně pomalá.
+    issues.push({
+      code: 'ROUTING_LOOP',
+      severity: 'ERROR',
+      message: `Routing loop that branches back into itself at node(s): ${branching.join(', ')}. Every pass multiplies the paths the flow takes, so results would be meaningless. Keep at most one connection from each of these nodes leading back into the loop.`,
+      nodeId: branching[0],
+    })
+  } else if (loopNodes.length > 0) {
     issues.push({
       code: 'ROUTING_LOOP',
       severity: 'WARNING',
@@ -487,6 +501,47 @@ function _checkRoutingLoops(
       nodeId: loopNodes[0],
     })
   }
+}
+
+/**
+ * Routing nodes that send the same flow back into their own loop along more
+ * than one connection. Chance takes only one output port per roll, so for it
+ * the connections are counted per port.
+ */
+function _findBranchingLoopNodes(nodes: NodeLike[], ids: string[], connections: ConnLike[]): string[] {
+  const adj: Record<string, string[]> = {}
+  for (const id of ids) adj[id] = []
+  for (const conn of connections) adj[String(conn.from_node)]?.push(String(conn.to_node))
+
+  const reach = (start: string): Set<string> => {
+    const seen = new Set<string>()
+    const stack = [...(adj[start] ?? [])]
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      if (seen.has(id)) continue
+      seen.add(id)
+      for (const nb of adj[id] ?? []) stack.push(nb)
+    }
+    return seen
+  }
+  const reachable: Record<string, Set<string>> = {}
+  for (const id of ids) reachable[id] = reach(id)
+
+  const typeOf = new Map(nodes.map((n) => [String(n.id), n.type]))
+  const result: string[] = []
+  for (const id of ids) {
+    // Spoj id → to vede zpět do smyčky, pokud se z `to` dá vrátit do `id`.
+    const backPerPort = new Map<number, number>()
+    for (const conn of connections) {
+      if (String(conn.from_node) !== id) continue
+      const to = String(conn.to_node)
+      if (to !== id && !reachable[to]?.has(id)) continue
+      const port = typeOf.get(id) === NodeType.CHANCE ? Number(conn.from_port) || 0 : 0
+      backPerPort.set(port, (backPerPort.get(port) ?? 0) + 1)
+    }
+    if ([...backPerPort.values()].some((count) => count >= 2)) result.push(id)
+  }
+  return result
 }
 
 /** Iterative DFS (no recursion limit on long chains). Returns nodes that close a cycle. */
@@ -555,6 +610,13 @@ function _checkTimerNodes(nodes: NodeLike[], issues: ValidationIssue[]): void {
 }
 
 function _checkFormulaNodes(nodes: NodeLike[], issues: ValidationIssue[]): void {
+  // Stejná sada proměnných, jakou dostane výraz v TickEngine (`resource` pole
+  // uzlů + `tick`) — neznámé jméno se tam tiše vyhodnotí jako 0.
+  const resourceNames = new Set<string>(['tick'])
+  for (const node of nodes) {
+    const r = str(dataOf(node).resource)
+    if (r) resourceNames.add(r)
+  }
   for (const node of nodes) {
     if (node.type !== NodeType.FORMULA) continue
     const nid = String(node.id)
@@ -577,6 +639,16 @@ function _checkFormulaNodes(nodes: NodeLike[], issues: ValidationIssue[]): void 
           message: `Formula node '${nid}' has an invalid expression: ${err.message}.`,
           nodeId: nid,
         })
+      } else {
+        const unknown = formulaIdentifiers(expression).filter((name) => !resourceNames.has(name))
+        if (unknown.length > 0) {
+          issues.push({
+            code: 'FORMULA_VARIABLE',
+            severity: 'WARNING',
+            message: `Formula node '${nid}' uses ${unknown.map((u) => `'${u}'`).join(', ')}, but no node uses a resource with that name, so it counts as 0. Names are case-sensitive.`,
+            nodeId: nid,
+          })
+        }
       }
     }
     if (str(data.output_resource).trim() === '') {
@@ -585,6 +657,110 @@ function _checkFormulaNodes(nodes: NodeLike[], issues: ValidationIssue[]): void 
         severity: 'WARNING',
         message: `Formula node '${nid}' has no output resource set.`,
         nodeId: nid,
+      })
+    }
+  }
+}
+
+// Uzly, jejichž produkci (nebo u Poolu kapacitu) Upgrade umí zvýšit.
+const UPGRADE_TARGET_TYPES = new Set<number>([
+  NodeType.POOL, NodeType.SOURCE, NodeType.CONVERTER, NodeType.TIMER, NodeType.FORMULA, NodeType.PLAYER_ACTION,
+])
+
+function _checkUpgradeNodes(nodes: NodeLike[], connections: ConnLike[], issues: ValidationIssue[]): void {
+  const byId = new Map(nodes.map((n) => [String(n.id), n]))
+  for (const node of nodes) {
+    if (node.type !== NodeType.UPGRADE) continue
+    const nid = String(node.id)
+    const data = dataOf(node)
+    const baseCost = num(data.base_cost, 10)
+    const growth = num(data.cost_growth, 1.15)
+    const bonus = num(data.bonus_per_level, 10)
+    const maxLevel = num(data.max_level, 0)
+
+    if (str(data.resource).trim() === '') {
+      issues.push({ code: 'EMPTY_RESOURCE', severity: 'WARNING', message: `Upgrade '${nid}' has no currency (resource) set, so it can never be bought.`, nodeId: nid })
+    }
+    if (!(baseCost > 0)) {
+      issues.push({ code: 'NEGATIVE_VALUE', severity: 'ERROR', message: `Upgrade '${nid}' has a non-positive or invalid base cost (${String(data.base_cost)}). Must be > 0.`, nodeId: nid })
+    }
+    if (!(growth > 0)) {
+      issues.push({ code: 'NEGATIVE_VALUE', severity: 'ERROR', message: `Upgrade '${nid}' has a non-positive or invalid cost growth (${String(data.cost_growth)}). Must be > 0 (1.15 = +15 % per level).`, nodeId: nid })
+    } else if (growth < 1) {
+      issues.push({ code: 'UPGRADE_COST', severity: 'WARNING', message: `Upgrade '${nid}' gets cheaper with every level (cost growth ${fmt(growth, 2)} < 1).`, nodeId: nid })
+    }
+    if (!Number.isFinite(bonus)) {
+      issues.push({ code: 'INVALID_VALUE', severity: 'ERROR', message: `Upgrade '${nid}' has an invalid bonus per level (${String(data.bonus_per_level)}).`, nodeId: nid })
+    } else if (bonus < 0) {
+      issues.push({ code: 'NEGATIVE_VALUE', severity: 'WARNING', message: `Upgrade '${nid}' has a negative bonus (${fmt(bonus, 1)} %) — every level reduces what it is connected to.`, nodeId: nid })
+    }
+    if (!(maxLevel >= 0)) {
+      issues.push({ code: 'NEGATIVE_VALUE', severity: 'WARNING', message: `Upgrade '${nid}' has a negative max level — it is treated as unlimited.`, nodeId: nid })
+    }
+
+    let paysFromPool = false
+    for (const conn of connections) {
+      if (String(conn.to_node) !== nid) continue
+      const from = byId.get(String(conn.from_node))
+      if (!from) continue
+      if (from.type === NodeType.POOL || from.type === NodeType.GATE) {
+        paysFromPool = true
+      } else {
+        issues.push({
+          code: 'UPGRADE_INPUT',
+          severity: 'WARNING',
+          message: `Upgrade '${nid}' only pays from pools connected into it — flow pushed into it by '${String(from.id)}' is lost. Connect a Pool in between.`,
+          nodeId: nid,
+        })
+      }
+    }
+    if (!paysFromPool) {
+      issues.push({ code: 'UPGRADE_INPUT', severity: 'WARNING', message: `Upgrade '${nid}' has no pool connected into it to pay from, so it is never bought.`, nodeId: nid })
+    }
+
+    let targets = 0
+    for (const conn of connections) {
+      if (String(conn.from_node) !== nid) continue
+      const to = byId.get(String(conn.to_node))
+      if (!to) continue
+      if (UPGRADE_TARGET_TYPES.has(to.type)) {
+        targets++
+      } else {
+        issues.push({
+          code: 'UPGRADE_TARGET',
+          severity: 'WARNING',
+          message: `Upgrade '${nid}' is connected to '${String(to.id)}', which it cannot boost. Upgrades boost Sources, Converters, Timers, Formulas, Player Actions and Pool capacity.`,
+          nodeId: nid,
+        })
+      }
+    }
+    if (targets === 0) {
+      issues.push({ code: 'UPGRADE_TARGET', severity: 'WARNING', message: `Upgrade '${nid}' does not boost anything yet — connect its output to a Source, Converter, Timer, Formula, Player Action or Pool.`, nodeId: nid })
+    }
+  }
+}
+
+/** Milníky, které se nikdy nemůžou splnit, protože míří na neexistující resource / Upgrade. */
+function _checkMilestones(raw: unknown, nodes: NodeLike[], issues: ValidationIssue[]): void {
+  if (!Array.isArray(raw)) return
+  const poolResources = new Set<string>()
+  const upgradeIds = new Set<string>()
+  for (const node of nodes) {
+    if (node.type === NodeType.POOL) poolResources.add(str(dataOf(node).resource))
+    if (node.type === NodeType.UPGRADE) upgradeIds.add(String(node.id))
+  }
+  for (const m of raw) {
+    if (!m || typeof m !== 'object') continue
+    const { label, kind, target } = m as Record<string, unknown>
+    const name = str(label).trim() || str(target)
+    if (kind === 'upgrade' ? !upgradeIds.has(str(target)) : !poolResources.has(str(target))) {
+      issues.push({
+        code: 'MILESTONE_TARGET',
+        severity: 'WARNING',
+        message: kind === 'upgrade'
+          ? `Milestone '${name}' refers to an Upgrade that is not in the graph, so it can never be reached.`
+          : `Milestone '${name}' counts '${str(target)}', but no pool holds that resource, so it can never be reached. Names are case-sensitive.`,
+        nodeId: '',
       })
     }
   }

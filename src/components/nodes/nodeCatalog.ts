@@ -7,7 +7,7 @@
 
 import type { GSSNode, NodeTypeValue } from '../../types/graph'
 
-export const NODE_TYPE_ORDER: NodeTypeValue[] = [1, 0, 3, 2, 4, 5, 7, 8, 9, 10]
+export const NODE_TYPE_ORDER: NodeTypeValue[] = [1, 0, 3, 2, 11, 4, 5, 7, 8, 9, 10]
 
 export const NODE_TYPE_COLORS: Record<number, string> = {
   0: '#3b82f6',  // POOL — blue
@@ -20,6 +20,7 @@ export const NODE_TYPE_COLORS: Record<number, string> = {
   8: '#14b8a6',  // TIMER — teal
   9: '#ec4899',  // FORMULA — pink
   10: '#84cc16', // PLAYER_ACTION — lime
+  11: '#cbd5e1', // UPGRADE — light slate
 }
 
 /** Upper-case badge text shown on the node. */
@@ -34,6 +35,7 @@ export const NODE_TYPE_LABELS: Record<number, string> = {
   8: 'TIMER',
   9: 'FORMULA',
   10: 'PLAYER ACTION',
+  11: 'UPGRADE',
 }
 
 /** Human-readable name (palette, inspector, default node labels). */
@@ -48,10 +50,11 @@ export const NODE_TYPE_NAMES: Record<number, string> = {
   8: 'Timer',
   9: 'Formula',
   10: 'Player Action',
+  11: 'Upgrade',
 }
 
 export const NODE_TYPE_ICONS: Record<number, string> = {
-  0: '▣', 1: '⬆', 2: '⇄', 3: '⬇', 4: '◈', 5: '⚄', 7: '⑂', 8: '⏱', 9: 'ƒ', 10: '☝',
+  0: '▣', 1: '⬆', 2: '⇄', 3: '⬇', 4: '◈', 5: '⚄', 7: '⑂', 8: '⏱', 9: 'ƒ', 10: '☝', 11: '★',
 }
 
 export const NODE_TYPE_HINTS: Record<number, string> = {
@@ -65,6 +68,7 @@ export const NODE_TYPE_HINTS: Record<number, string> = {
   8: 'Exact pulse every N seconds (e.g. daily reward)',
   9: 'Computed output from a safe expression (e.g. level * 1.2)',
   10: 'Simulated player-triggered action, average cadence',
+  11: 'Idle-game upgrade: bought automatically, boosts connected nodes',
 }
 
 /**
@@ -116,6 +120,11 @@ export const NODE_TYPE_DOCS: Record<number, string[]> = {
     'Simulates a player action, such as clicking a button: on average once every cadence seconds it sends its amount to every connected node.',
     'The timing is random (seeded). For an exact interval use Timer.',
   ],
+  11: [
+    'An idle-game upgrade that the simulated player buys as soon as it can afford it. It pays with its currency from the pools connected INTO it. Level n+1 costs base cost × cost growth^n (e.g. 50, 57.5, 66.1… with growth 1.15).',
+    'Every level boosts the nodes its output is connected to: production of Sources, Converters, Timers, Formulas and Player Actions, or the capacity of Pools. Additive: +10 % per level (×1.1, ×1.2, ×1.3…). Compound: ×1.1 per level (×1.1, ×1.21, ×1.33…).',
+    'Upgrades are bought at the end of a tick, after Drains, and the bonus applies from the next tick. Its connections carry no resources. Several Upgrades on one node multiply.',
+  ],
 }
 
 const DEFAULT_DATA: Record<number, Record<string, unknown>> = {
@@ -131,6 +140,7 @@ const DEFAULT_DATA: Record<number, Record<string, unknown>> = {
   8: { resource: 'Gold', amount: 100, interval: 60 },
   9: { expression: 'tick * 1', output_resource: 'Gold' },
   10: { resource: 'Gold', amount: 10, cadence: 5 },
+  11: { resource: 'Gold', base_cost: 50, cost_growth: 1.15, bonus_per_level: 10, bonus_mode: 0, max_level: 0 },
 }
 
 /** Fresh copy of the default data for a node type (never shared between nodes). */

@@ -43,6 +43,32 @@ const MAX_TIMER_PULSES_PER_TICK = 10_000
 // hlouběji, se zahodí — validátor takové smyčky hlásí jako WARNING.
 export const MAX_ROUTE_DEPTH = 64
 
+// Hloubka sama nestačí: smyčka, ve které se tok větví (Splitter se dvěma
+// výstupy, z nichž oba vedou zpět, Gate s duplicitním spojem…), by do hloubky
+// 64 prošla až 2^64 cest a simulace by zamrzla. Proto má každé jedno vstoupení
+// toku do grafu (a každé jedno odebírání) navíc strop na celkový počet skoků.
+// Běžné grafy se k němu ani nepřiblíží; tok nad stropem se zahodí stejně jako
+// tok nad MAX_ROUTE_DEPTH.
+export const MAX_ROUTE_HOPS = 2048
+
+// Upgrade uzel: pojistka proti nekonečnému nakupování (cena roste pomalu nebo
+// klesá) a strop násobitele, aby složený bonus nepřetekl do Infinity/NaN.
+const MAX_UPGRADE_PURCHASES_PER_TICK = 1000
+const MAX_UPGRADE_MULTIPLIER = 1e15
+
+/** Price of the next level of an Upgrade node that is currently at `level`. */
+export function upgradeCost(baseCost: number, growth: number, level: number): number {
+  return baseCost * Math.pow(growth, level)
+}
+
+/** Production/capacity multiplier of an Upgrade node at `level` (bonus in %, mode 0 = additive, 1 = compound). */
+export function upgradeMultiplier(bonusPct: number, mode: number, level: number): number {
+  if (!(level > 0)) return 1
+  const m = mode === 1 ? Math.pow(1 + bonusPct / 100, level) : 1 + (bonusPct / 100) * level
+  if (Number.isNaN(m)) return 1
+  return Math.min(Math.max(0, m), MAX_UPGRADE_MULTIPLIER)
+}
+
 export function getTickSpecDescription(): Array<{ step: number; name: string; detail: string }> {
   return [
     {
@@ -83,12 +109,18 @@ export function getTickSpecDescription(): Array<{ step: number; name: string; de
     },
     {
       step: 7,
+      name: 'Upgrades',
+      detail:
+        'Each Upgrade node buys as many levels as it can afford from the pools connected into it (level n+1 costs base_cost × cost_growth^n). The bonus of the new levels applies from the next tick: it multiplies the production of the nodes the Upgrade is connected to (or the capacity of connected pools).',
+    },
+    {
+      step: 8,
       name: 'Gates',
       detail:
         'Each Gate evaluates its condition (operator + threshold) against the total of a named resource across all pools. State becomes open or closed.',
     },
     {
-      step: 8,
+      step: 9,
       name: 'Chance Tracking',
       detail:
         'Chance nodes route flow probabilistically during distribution (inline). This step tracks cumulative success/failure counts.',
@@ -108,6 +140,7 @@ export function getSemanticsNotes(): string[] {
     'Splitter: Divides incoming flow across its connected outputs (ordered by output port). Equal mode = flow/N. Weighted mode = proportional to comma-separated weights.',
     'Converter: only accepts its configured input resource, and its input buffer holds at most one tick (or one cycle) of input — any surplus pushed into it is discarded.',
     'Capacity: Pools have a max capacity. Overflow is silently discarded.',
+    'Upgrades: connections from an Upgrade carry no resources — they only apply its bonus. Several Upgrades on one node multiply. Upgrades are bought in node order, so an earlier Upgrade has priority over a shared currency.',
   ]
 }
 
@@ -144,6 +177,7 @@ export function initState(graph: GSSGraph): SimState {
   const chance_rolls: Record<string, ChanceRollStats> = {}
   const splitter_data: Record<string, SplitterRuntime> = {}
   const timer_data: Record<string, TimerRuntime> = {}
+  const upgrade_levels: Record<string, number> = {}
 
   for (const node of graph.nodes) {
     const nid = String(node.id)
@@ -183,10 +217,13 @@ export function initState(graph: GSSGraph): SimState {
       case NodeType.TIMER:
         timer_data[nid] = { accumulated: 0 }
         break
+      case NodeType.UPGRADE:
+        upgrade_levels[nid] = 0
+        break
     }
   }
 
-  const state: SimState = { tick: 0, pools, gate_states, converter_buffers, chance_rolls, splitter_data, timer_data }
+  const state: SimState = { tick: 0, pools, gate_states, converter_buffers, chance_rolls, splitter_data, timer_data, upgrade_levels }
 
   // Pre-evaluate gates based on initial pool amounts so gates open at t=0 if condition is met
   evaluateGates(state, graph)
@@ -234,6 +271,10 @@ interface TickContext {
   outgoing: Map<string, GSSConnection[]>
   incoming: Map<string, GSSConnection[]>
   nodeById: Map<string, GSSNode>
+  /** Skoky spotřebované aktuálním doručením/odebíráním (viz MAX_ROUTE_HOPS). */
+  hops: number
+  /** Node ID → multiplier from the Upgrade nodes connected to it (missing = 1). */
+  boost: Map<string, number>
 }
 
 function _buildContext(s: SimState, graph: GSSGraph, delta: number, rng: RNGInstance): TickContext {
@@ -251,7 +292,43 @@ function _buildContext(s: SimState, graph: GSSGraph, delta: number, rng: RNGInst
   }
   const nodeById = new Map<string, GSSNode>()
   for (const node of graph.nodes) nodeById.set(String(node.id), node)
-  return { s, rng, delta, outgoing, incoming, nodeById }
+
+  // Bonusy z úrovní koupených v předchozích tickách.
+  const boost = upgradeBoosts(graph, s.upgrade_levels)
+  return { s, rng, delta, outgoing, incoming, nodeById, hops: 0, boost }
+}
+
+/**
+ * Node ID → combined multiplier from the Upgrade nodes connected to it, for
+ * the given upgrade levels (e.g. `summary.upgrade_levels` or a frame's
+ * `upgrades`). Nodes without a boost are missing from the map.
+ */
+export function upgradeBoosts(
+  graph: Pick<GSSGraph, 'nodes' | 'connections'>,
+  levels: Record<string, number> | undefined,
+): Map<string, number> {
+  const boost = new Map<string, number>()
+  if (!levels) return boost
+  const multipliers = new Map<string, number>()
+  for (const node of graph.nodes) {
+    if (node.type !== NodeType.UPGRADE) continue
+    const nid = String(node.id)
+    const data = nodeData(node)
+    const m = upgradeMultiplier(num(data.bonus_per_level, 10), num(data.bonus_mode, 0), levels[nid] ?? 0)
+    if (m !== 1) multipliers.set(nid, m)
+  }
+  if (multipliers.size === 0) return boost
+  for (const conn of graph.connections) {
+    const m = multipliers.get(String(conn.from_node))
+    if (m === undefined) continue
+    const to = String(conn.to_node)
+    boost.set(to, Math.min((boost.get(to) ?? 1) * m, MAX_UPGRADE_MULTIPLIER))
+  }
+  return boost
+}
+
+function _boostOf(id: string, ctx: TickContext): number {
+  return ctx.boost.get(id) ?? 1
 }
 
 // `rng` is a required, explicit dependency (audit R-06): every call site
@@ -270,10 +347,18 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     chance_rolls: _deepCopyChanceRolls(state.chance_rolls),
     splitter_data: { ...state.splitter_data },
     timer_data: _deepCopyTimerData(state.timer_data),
+    upgrade_levels: { ...state.upgrade_levels },
   }
 
   const nodes = graph.nodes
   const ctx = _buildContext(s, graph, delta, rng)
+
+  // Upgrade napojený na Pool zvětšuje jeho kapacitu (základ = kapacita z dat uzlu).
+  for (const [targetId, m] of ctx.boost) {
+    const pool = s.pools[targetId]
+    const node = ctx.nodeById.get(targetId)
+    if (pool && node) pool.capacity = num(nodeData(node).capacity, 100) * m
+  }
 
   // Step 1: Timers — exact-interval pulses
   for (const node of nodes) {
@@ -281,7 +366,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     const nid = String(node.id)
     const data = nodeData(node)
     const resource = str(data.resource)
-    const amount = num(data.amount, 1.0)
+    const amount = num(data.amount, 1.0) * _boostOf(nid, ctx)
     const interval = Math.max(num(data.interval, 60), 0.001)
 
     const timer = s.timer_data[nid]
@@ -308,8 +393,9 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
   // Step 2: Sources
   for (const node of nodes) {
     if (node.type !== NodeType.SOURCE) continue
+    const nid = String(node.id)
     const data = nodeData(node)
-    _distributeToConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * delta, ctx)
+    _distributeToConnected(nid, str(data.resource), num(data.rate, 1.0) * delta * _boostOf(nid, ctx), ctx)
   }
 
   // Step 3: Converters
@@ -341,7 +427,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
       consumed += _consumeFromConnected(nid, inputResource, needed - consumed, ctx, 0)
     }
 
-    const produced = outputAmount * (consumed / inputAmount)
+    const produced = outputAmount * (consumed / inputAmount) * _boostOf(nid, ctx)
     if (produced > 0) {
       _distributeToConnected(nid, outputResource, produced, ctx)
     }
@@ -362,7 +448,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
       const data = nodeData(node)
       let produced = 0
       try {
-        produced = evaluateFormula(str(data.expression, '0'), sharedVariables) * delta
+        produced = evaluateFormula(str(data.expression, '0'), sharedVariables) * delta * _boostOf(String(node.id), ctx)
       } catch {
         // Neplatný výraz — GraphValidator na to upozorní; za běhu simulace
         // produkujeme 0 místo pádu celé simulace kvůli jednomu špatnému uzlu.
@@ -380,7 +466,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     const nid = String(node.id)
     const data = nodeData(node)
     const resource = str(data.resource)
-    const amount = num(data.amount, 1.0)
+    const amount = num(data.amount, 1.0) * _boostOf(nid, ctx)
     const cadence = Math.max(num(data.cadence, 5.0), 0.001)
 
     // Očekávaný počet spuštění za tick = dt / cadence. Celá část je jistá,
@@ -403,10 +489,36 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     _consumeFromConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * delta, ctx, 0)
   }
 
-  // Step 7: Gates
+  // Step 7: Upgrades — buy every level that is affordable now (bonus from the next tick)
+  for (const node of nodes) {
+    if (node.type !== NodeType.UPGRADE || !s.upgrade_levels) continue
+    const nid = String(node.id)
+    const data = nodeData(node)
+    const resource = str(data.resource)
+    const baseCost = num(data.base_cost, 10)
+    const growth = num(data.cost_growth, 1.15)
+    const maxLevel = Math.floor(num(data.max_level, 0))
+    // Nulová cena by znamenala nekonečně mnoho úrovní zdarma (validátor hlásí chybu).
+    if (!resource || !(baseCost > 0) || !(growth > 0)) continue
+
+    let level = s.upgrade_levels[nid] ?? 0
+    for (let bought = 0; bought < MAX_UPGRADE_PURCHASES_PER_TICK; bought++) {
+      if (maxLevel > 0 && level >= maxLevel) break
+      const cost = upgradeCost(baseCost, growth, level)
+      if (!(cost > 0) || !Number.isFinite(cost)) break
+      ctx.hops = 0
+      // Relativní tolerance: součty plovoucích čísel (0.1 + 0.2…) nesmí nákup o chlup minout.
+      if (_availableFromConnected(nid, resource, ctx, 0, new Set()) < cost * (1 - 1e-9)) break
+      _consumeFromConnected(nid, resource, cost, ctx, 0)
+      level++
+    }
+    s.upgrade_levels[nid] = level
+  }
+
+  // Step 8: Gates
   evaluateGates(s, graph)
 
-  // Step 8: Chance tracking — no-op (routing happens inline in distribute)
+  // Step 9: Chance tracking — no-op (routing happens inline in distribute)
 
   return s
 }
@@ -416,13 +528,14 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
 function _distributeToConnected(fromId: string, resource: string, amount: number, ctx: TickContext): void {
   if (!(amount > 0)) return
   for (const conn of ctx.outgoing.get(fromId) ?? []) {
+    ctx.hops = 0
     _deliver(String(conn.to_node), resource, amount, ctx, 0)
   }
 }
 
 /** Delivers `amount` of `resource` into node `targetId`, routing through Gate/Chance/Splitter nodes. */
 function _deliver(targetId: string, resource: string, amount: number, ctx: TickContext, depth: number): void {
-  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH) return
+  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH || ++ctx.hops > MAX_ROUTE_HOPS) return
   const s = ctx.s
 
   // Gate: open → relay to all outputs, closed → block
@@ -520,7 +633,8 @@ function _routeThroughSplitter(splitterId: string, resource: string, amount: num
  * consumer pulls through it); a closed Gate blocks.
  */
 function _consumeFromConnected(toId: string, resource: string, amount: number, ctx: TickContext, depth: number): number {
-  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH) return 0
+  if (depth === 0) ctx.hops = 0
+  if (!(amount > 0) || depth > MAX_ROUTE_DEPTH || ++ctx.hops > MAX_ROUTE_HOPS) return 0
   let consumed = 0
   for (const conn of ctx.incoming.get(toId) ?? []) {
     if (consumed >= amount) break
@@ -542,6 +656,31 @@ function _consumeFromConnected(toId: string, resource: string, amount: number, c
     }
   }
   return consumed
+}
+
+/**
+ * How much of `resource` a consumer could take right now from the pools
+ * connected into it (also through open Gates) — like _consumeFromConnected,
+ * but without taking anything. Each pool counts once.
+ */
+function _availableFromConnected(toId: string, resource: string, ctx: TickContext, depth: number, seen: Set<string>): number {
+  if (depth > MAX_ROUTE_DEPTH || ++ctx.hops > MAX_ROUTE_HOPS) return 0
+  let available = 0
+  for (const conn of ctx.incoming.get(toId) ?? []) {
+    const fromId = String(conn.from_node)
+    if (seen.has(fromId)) continue
+    seen.add(fromId)
+
+    const gateOpen = ctx.s.gate_states[fromId]
+    if (gateOpen !== undefined) {
+      if (gateOpen) available += _availableFromConnected(fromId, resource, ctx, depth + 1, seen)
+      continue
+    }
+
+    const pool = ctx.s.pools[fromId]
+    if (pool !== undefined && pool.resource === resource) available += Math.max(0, pool.amount)
+  }
+  return available
 }
 
 // ==================== Helpers ====================

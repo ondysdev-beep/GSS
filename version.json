@@ -1,6 +1,6 @@
 {
-  "version": "3.4.0",
-  "changelog": "Gates now pass flow through, all samples and templates work, editor crash and undo fixes, per-edition auto-updates",
+  "version": "3.5.0",
+  "changelog": "New Upgrade node and Milestones (time to reach), compact large numbers, fix for a freeze on branching routing loops, auto-save fixes",
   "download_url": "https://neopryus.itch.io/idle-economy-simulator",
   "mandatory": false
 }

@@ -40,6 +40,7 @@ export function exportTypeScript(
   iface('GSSTimerConfig', ['id: string', 'resource: string', 'amount: number', 'interval: number'])
   iface('GSSFormulaConfig', ['id: string', 'expression: string', 'outputResource: string'])
   iface('GSSPlayerActionConfig', ['id: string', 'resource: string', 'amount: number', 'cadence: number'])
+  iface('GSSUpgradeConfig', ['id: string', 'currency: string', 'baseCost: number', 'costGrowth: number', 'bonusPerLevel: number', 'compound: boolean', 'maxLevel: number  // 0 = unlimited'])
   iface('GSSConnectionConfig', ['fromNode: string', 'toNode: string', 'fromPort: number  // Chance: 0 = success, 1 = failure'])
   iface('GSSEconomyConfig', [
     'name: string', 'version: string',
@@ -48,6 +49,7 @@ export function exportTypeScript(
     'gates: readonly GSSGateConfig[]', 'chances: readonly GSSChanceConfig[]',
     'splitters: readonly GSSSplitterConfig[]', 'timers: readonly GSSTimerConfig[]',
     'formulas: readonly GSSFormulaConfig[]', 'playerActions: readonly GSSPlayerActionConfig[]',
+    'upgrades: readonly GSSUpgradeConfig[]',
     'connections: readonly GSSConnectionConfig[]',
   ])
 
@@ -99,6 +101,10 @@ export function exportTypeScript(
     const d = dataOf(n)
     return `{ id: ${quote(n.id)}, resource: ${quote(str(d.resource))}, amount: ${n0(d.amount, 1)}, cadence: ${n0(d.cadence, 5)} }`
   }))
+  list('upgrades', nodesOfType(graph, NodeType.UPGRADE).map((n) => {
+    const d = dataOf(n)
+    return `{ id: ${quote(n.id)}, currency: ${quote(str(d.resource))}, baseCost: ${n0(d.base_cost, 50)}, costGrowth: ${n0(d.cost_growth, 1.15)}, bonusPerLevel: ${n0(d.bonus_per_level, 10)}, compound: ${num(d.bonus_mode, 0) === 1}, maxLevel: ${Math.trunc(Math.max(0, num(d.max_level, 0)))} }`
+  }))
   list('connections', graph.connections.map((c) =>
     `{ fromNode: ${quote(c.from_node)}, toNode: ${quote(c.to_node)}, fromPort: ${Math.trunc(num(c.from_port, 0))} }`))
   L.push('} as const')
@@ -108,6 +114,17 @@ export function exportTypeScript(
   L.push('// ——— Helpers for easy lookup ———')
   L.push(`export const POOLS: Record<string, GSSPoolConfig> = Object.fromEntries(${CONST}.pools.map((p) => [p.id, p]))`)
   L.push(`export const SOURCES: Record<string, GSSSourceConfig> = Object.fromEntries(${CONST}.sources.map((s) => [s.id, s]))`)
+  L.push('')
+  // Stejné vzorce jako TickEngine (upgradeCost / upgradeMultiplier).
+  L.push('/** Price of the next level of an upgrade that is currently at `level`. */')
+  L.push('export function upgradeCost(u: GSSUpgradeConfig, level: number): number {')
+  L.push('  return u.baseCost * Math.pow(u.costGrowth, level)')
+  L.push('}')
+  L.push('')
+  L.push('/** Production (or capacity) multiplier an upgrade gives at `level`. */')
+  L.push('export function upgradeMultiplier(u: GSSUpgradeConfig, level: number): number {')
+  L.push('  return Math.max(0, u.compound ? Math.pow(1 + u.bonusPerLevel / 100, level) : 1 + (u.bonusPerLevel / 100) * level)')
+  L.push('}')
   L.push('')
 
   // Individuální named exporty pro každý Pool (unikátní identifikátory)

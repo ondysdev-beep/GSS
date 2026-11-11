@@ -6,6 +6,7 @@ import { useLicenseStore } from '../../store/licenseStore'
 import { findBottlenecks } from '../../core/BottleneckAnalyzer'
 import { generateRecommendations } from '../../core/RecommendationEngine'
 import { discoverConversionLoops } from '../../core/ExploitDiscovery'
+import { upgradeBoosts } from '../../core/TickEngine'
 import type { VerdictState, HealthScore, CriticalFailure } from '../../types/simulation'
 
 const VERDICT_COLORS: Record<VerdictState, string> = {
@@ -102,12 +103,14 @@ export function IntelligenceDashboard() {
     // Skutečná kapacita z grafu — dřív se předávalo maximum dosažené hodnoty,
     // takže každý rostoucí pool vyšel jako "FULL" (falešný saturated_pool).
     const pools: Record<string, { amount: number; capacity: number; resource?: string }> = {}
+    // Kapacita zvětšená Upgrade uzly na konci běhu.
+    const boosts = upgradeBoosts(graph, lastFrame.upgrades)
     for (const [pid, amount] of Object.entries(lastFrame.pools)) {
       const node = graph.nodes.find((n) => n.id === pid)
       const d = (node?.data ?? {}) as { capacity?: unknown; resource?: unknown }
       pools[pid] = {
         amount,
-        capacity: typeof d.capacity === 'number' ? d.capacity : 100,
+        capacity: (typeof d.capacity === 'number' ? d.capacity : 100) * (boosts.get(pid) ?? 1),
         resource: typeof d.resource === 'string' ? d.resource : undefined,
       }
     }

@@ -89,6 +89,37 @@ describe('Routing loop guard', () => {
     )
     expect(() => run(graph, 3)).not.toThrow()
   })
+
+  // Smyčka, ve které se tok větví, dřív procházela až 2^64 cest (zamrzlá appka).
+  it('branching splitter/gate loop finishes quickly', () => {
+    const graph = g(
+      [
+        { id: 'src', type: 1, label: 'Src', position: at, data: { resource: 'gold', rate: 10 } },
+        { id: 'split', type: 7, label: 'Split', position: at, data: { split_mode: 0, output_count: 2, weights: '1,1' } },
+        { id: 'gate', type: 4, label: 'Gate', position: at, data: { variable: 'gold', operator: 1, value: 0 } },
+        { id: 'pool', type: 0, label: 'Pool', position: at, data: { resource: 'gold', capacity: 1e9 } },
+      ],
+      [c('src', 'gate'), c('gate', 'split'), c('split', 'split', 0), c('split', 'gate', 1), c('gate', 'pool')],
+    )
+    const t0 = Date.now()
+    const s = run(graph, 20)
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(s.pools.pool.amount).toBeGreaterThan(0)
+  })
+
+  it('pulling through a branching gate loop finishes quickly', () => {
+    const graph = g(
+      [
+        { id: 'g1', type: 4, label: 'G1', position: at, data: { variable: 'x', operator: 1, value: 0 } },
+        { id: 'g2', type: 4, label: 'G2', position: at, data: { variable: 'x', operator: 1, value: 0 } },
+        { id: 'drain', type: 3, label: 'Drain', position: at, data: { resource: 'gold', rate: 1 } },
+      ],
+      [c('g1', 'g2'), c('g1', 'g2'), c('g2', 'g1'), c('g2', 'g1'), c('g1', 'drain')],
+    )
+    const t0 = Date.now()
+    run(graph, 20)
+    expect(Date.now() - t0).toBeLessThan(2000)
+  })
 })
 
 describe('Pool capacity', () => {

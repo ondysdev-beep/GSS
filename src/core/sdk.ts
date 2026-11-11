@@ -16,7 +16,11 @@
 export {
   initState, simulateTick, evaluateGates, applyInitialOverrides,
   getTickSpecDescription, getSemanticsNotes, TICK_SPEC_VERSION,
+  upgradeCost, upgradeMultiplier, upgradeBoosts,
 } from './TickEngine'
+export { createMilestoneTracker, graphMilestones } from './Milestones'
+export type { MilestoneTimes, MilestoneTracker } from './Milestones'
+export { formatNumber, formatMultiplier, formatDuration } from './formatNumber'
 export { createRNG, SimRNG } from './SimRNG'
 export type { RNGInstance } from './SimRNG'
 
@@ -45,7 +49,7 @@ export { TEMPLATE_LIST, getTemplate } from './GraphTemplates'
 export { customizeTemplate } from './TemplateCustomizer'
 
 // ── Typy (grafový formát, simulační stav, výsledky) ─────────────────────────
-export type { GSSGraph, GSSNode, GSSConnection, NodeData, NodeTypeValue } from '../types/graph'
+export type { GSSGraph, GSSNode, GSSConnection, NodeData, NodeTypeValue, Milestone, UpgradeData } from '../types/graph'
 export { NodeType, GSS_FORMAT_VERSION } from '../types/graph'
 export type {
   SimState, PoolState, RunReport, HealthScore, ValidationIssue, Scenario,

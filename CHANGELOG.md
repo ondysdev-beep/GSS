@@ -3,6 +3,30 @@
 User-facing summary of changes. For a detailed, file-level developer log,
 see [DEVLOG.md](./DEVLOG.md).
 
+## 3.5.0 — Upgrade node, milestones, freeze fix
+
+**New: Upgrade node**
+- An idle-game upgrade the simulated player buys as soon as it can afford it. Each level costs more (`base cost × growth^level`) and boosts the production of the nodes it is connected to (Source, Converter, Timer, Formula, Player Action) or the capacity of a Pool. Additive or compound bonus, optional max level.
+- The run report records when every level was bought; replay shows each Upgrade's level and the multiplier on its (dashed) connections.
+- Supported in Parameter Sweep, the Template Wizard, the AI Generator and the C# / GDScript / TypeScript exports (with `UpgradeCost` / `UpgradeMultiplier` helpers).
+- New sample: *Idle Upgrades*.
+
+**New: Milestones (time to reach)**
+- Add pacing goals to a graph in Analysis → Milestones: "1000 Gold in total" (summed over all pools) or "Pickaxe level 10". Every run measures when each goal is reached, exact to the tick; milestones are saved in the .gss file.
+- Reached milestones appear as lines in the Wealth Over Time chart, and the persona comparison shows when Casual, Grinder and Min-Maxer players reach each one.
+- The *Idle Upgrades* sample comes with three milestones.
+
+**Large numbers**
+- Charts, tooltips and result tables show large numbers compactly (1.23K, 4.5M, 6.7B, 8.9T, then 1.2e15) and simulated time as 12m 05s / 3h 20m.
+
+**Fixes**
+- A routing loop that branches back into itself (e.g. a Splitter with two outputs leading back into the loop) froze the app. The engine now has a hard limit on routing work per flow, and the validator reports such loops as an error.
+- The Diff Viewer no longer simulates graphs that have validation errors (that could freeze the app while editing) and respects the FREE duration limit.
+- Auto-save now always stores the open graph. Before, after opening another file or creating a new graph without editing it, a restart brought back the previous graph.
+- Version history keeps working when browser storage is full (it drops the oldest snapshots instead of silently stopping).
+- New warning when a Formula uses a name that no resource has (names are case-sensitive; an unknown name counts as 0).
+- New warning when a milestone counts a resource no pool holds, or an Upgrade that is not in the graph.
+
 ## 3.4.0 — full code audit fixes
 
 **Simulation (tick spec v2 — results of graphs using these features change)**

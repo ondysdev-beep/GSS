@@ -48,11 +48,11 @@ sudo dpkg -i gss_*_amd64.deb
 
 | Feature | Free | PRO |
 |---|---|---|
-| Node-based graph editor (10 node types) | ✅ | ✅ |
+| Node-based graph editor (11 node types) | ✅ | ✅ |
 | Deterministic simulation | ✅ | ✅ |
 | Health score & verdict | ✅ | ✅ |
 | Full Intelligence Dashboard (sub-scores, failures, bottlenecks, exploits, RNG) | ❌ | ✅ |
-| 12 sample projects + 5 templates + Community Library | ✅ | ✅ |
+| 13 sample projects + 5 templates + Community Library | ✅ | ✅ |
 | AI Economy Generator (BYOK, desktop only) | ✅ | ✅ |
 | Economy Diff Viewer + Version History | ✅ | ✅ |
 | Save/Load .gss files | ✅ | ✅ |
@@ -66,6 +66,7 @@ sudo dpkg -i gss_*_amd64.deb
 | A/B Scenario Comparison | ❌ | ✅ |
 | PDF Report + Web Share HTML | ❌ | ✅ |
 | Multi-Persona Dashboard | ✅ | ✅ |
+| Milestones (time to reach a resource total or upgrade level) | ✅ | ✅ |
 | Graph size / simulated time per run | 15 nodes / 120 s | unlimited |
 
 **Get PRO:** [neopryus.itch.io/idle-economy-simulator](https://neopryus.itch.io/idle-economy-simulator)
@@ -86,6 +87,7 @@ sudo dpkg -i gss_*_amd64.deb
 | **Timer** | Exact pulse every N seconds (e.g. daily reward) |
 | **Formula** | Computed output from a safe expression (e.g. `level * 1.2`) |
 | **Player Action** | Simulated player-triggered action, stochastic average cadence |
+| **Upgrade** | Idle-game upgrade bought automatically when affordable (cost grows per level); boosts the production or capacity of the nodes it connects to |
 
 How each node behaves tick by tick, its fields and common patterns:
 **[docs/NODE_REFERENCE.md](./docs/NODE_REFERENCE.md)**. The short version

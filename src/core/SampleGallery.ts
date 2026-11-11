@@ -23,6 +23,15 @@ export const SAMPLES: SampleMeta[] = [
     nodes: 3,
   },
   {
+    name: 'Idle Upgrades',
+    file: 'idle_upgrades.json',
+    icon: '⛏️',
+    category: 'Idle',
+    description: 'A gold mine with two upgrades the player buys as soon as they can: a cheap Pickaxe (+25 % per level, price +15 %) and an expensive compound Drill (×1.5 per level).',
+    expected: 'Milestones: Pickaxe level 10 at 48s, first Drill at 119s (the greedy player buys the cheaper Pickaxe first). Saving 1K gold takes ~4 min — beyond the 120s FREE limit.',
+    nodes: 4,
+  },
+  {
     name: 'Crafting Chain',
     file: 'crafting_chain.json',
     icon: '🔨',

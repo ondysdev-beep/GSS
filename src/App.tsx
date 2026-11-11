@@ -34,6 +34,7 @@ const PowerBalanceChart = lazy(() => import('./components/charts/PowerBalanceCha
 const MultiPersonaChart = lazy(() => import('./components/charts/MultiPersonaChart').then((m) => ({ default: m.MultiPersonaChart })))
 const IntelligenceDashboard = lazy(() => import('./components/ui/IntelligenceDashboard').then((m) => ({ default: m.IntelligenceDashboard })))
 const SimulationDashboard = lazy(() => import('./components/ui/SimulationDashboard').then((m) => ({ default: m.SimulationDashboard })))
+const MilestonesPanel = lazy(() => import('./components/ui/MilestonesPanel').then((m) => ({ default: m.MilestonesPanel })))
 const SampleGalleryPanel = lazy(() => import('./components/ui/SampleGalleryPanel').then((m) => ({ default: m.SampleGalleryPanel })))
 const AutoTunerPanel = lazy(() => import('./components/ui/AutoTunerPanel').then((m) => ({ default: m.AutoTunerPanel })))
 const VersionHistoryPanel = lazy(() => import('./components/ui/VersionHistoryPanel').then((m) => ({ default: m.VersionHistoryPanel })))
@@ -184,6 +185,9 @@ export default function App() {
             <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
               {/* Simulation controls */}
               <SimulationDashboard />
+
+              {/* Milníky — čas do dosažení cílů tempa */}
+              <MilestonesPanel />
 
               {/* Charts */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

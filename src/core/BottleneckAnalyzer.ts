@@ -53,9 +53,12 @@ export interface WhyEmptyResult {
 function buildConnIndex(graph: GSSGraph) {
   const incoming: Record<string, typeof graph.connections> = {}
   const outgoing: Record<string, typeof graph.connections> = {}
+  // Spoje z Upgrade uzlů nenesou žádný tok (jen bonus) — do analýzy toku nepatří.
+  const upgradeIds = new Set(graph.nodes.filter((n) => n.type === NodeType.UPGRADE).map((n) => String(n.id)))
   for (const conn of graph.connections) {
     const t = String(conn.to_node)
     const f = String(conn.from_node)
+    if (upgradeIds.has(f)) continue
     incoming[t] ??= []
     outgoing[f] ??= []
     incoming[t].push(conn)
@@ -138,14 +141,21 @@ export function findBottlenecks(
   // takže Timer/Converter/Player Action produkce vedla k falešným poplachům
   // a víc drainů na jednom resource k přehlédnutým.
   const production = new Map<string, number>()
-  const unknownProduction = new Set<string>() // Formula — rychlost nejde staticky určit
+  const unknownProduction = new Set<string>() // Formula / Upgrade — rychlost nejde staticky určit
   const addProduction = (resource: unknown, rate: number) => {
     if (typeof resource !== 'string' || !resource || !Number.isFinite(rate)) return
     production.set(resource, (production.get(resource) ?? 0) + rate)
   }
+  const upgradeIds = new Set(graph.nodes.filter((n) => n.type === NodeType.UPGRADE).map((n) => String(n.id)))
+  const boosted = new Set(graph.connections.filter((c) => upgradeIds.has(String(c.from_node))).map((c) => String(c.to_node)))
   for (const node of graph.nodes) {
     const d = (node.data ?? {}) as unknown as Record<string, unknown>
     const n = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+    if (boosted.has(String(node.id)) && node.type !== NodeType.POOL) {
+      const out = node.type === NodeType.CONVERTER || node.type === NodeType.FORMULA ? d.output_resource : d.resource
+      if (typeof out === 'string') unknownProduction.add(out)
+      continue
+    }
     switch (node.type) {
       case NodeType.SOURCE: addProduction(d.resource, n(d.rate, 0)); break
       case NodeType.TIMER: addProduction(d.resource, n(d.amount, 0) / Math.max(n(d.interval, 60), 0.001)); break

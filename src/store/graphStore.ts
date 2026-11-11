@@ -6,7 +6,7 @@ import { TICK_SPEC_VERSION } from '../core/TickEngine'
 import { CommandManager } from '../core/CommandManager'
 import { normalizeGraph } from '../core/GraphNormalizer'
 import { getSettings } from './settingsStore'
-import type { GSSGraph, GSSNode, GSSConnection } from '../types/graph'
+import type { GSSGraph, GSSNode, GSSConnection, Milestone } from '../types/graph'
 
 interface GraphStore {
   graph: GSSGraph
@@ -27,6 +27,8 @@ interface GraphStore {
   /** Without `fromPort` removes every connection between the two nodes. */
   removeConnection: (fromNode: string, toNode: string, fromPort?: number) => void
   setName: (name: string) => void
+  /** `mergeKey` as in updateNode (typing into one milestone field = one undo step). */
+  setMilestones: (milestones: Milestone[], mergeKey?: string) => void
   markClean: () => void
   newGraph: () => void
   undo: () => void
@@ -108,6 +110,8 @@ export const useGraphStore = create<GraphStore>((set) => {
     // Přejmenování je teď také krok historie (dřív ho undo "přeskočilo" a
     // obnovilo starý název z dřívějšího snapshotu).
     setName: (name) => set((s) => mutate(s, { name }, 'graph:name')),
+
+    setMilestones: (milestones, mergeKey) => set((s) => mutate(s, { milestones }, mergeKey)),
 
     markClean: () => set({ isDirty: false }),
 

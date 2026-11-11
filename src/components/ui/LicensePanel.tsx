@@ -14,7 +14,7 @@ import { platform } from '../../platform'
 const FREE_FEATURES = [
   `Up to ${FREE_TIER_LIMITS.MAX_NODES} nodes`,
   `Up to ${FREE_TIER_LIMITS.MAX_DURATION_SECONDS} s of simulated time per run`,
-  'All 10 node types (try everything)',
+  'All 11 node types (try everything)',
   'Simulation, replay & charts',
   'Health score & verdict',
   '.gss save / load, CSV & diagnostics export',

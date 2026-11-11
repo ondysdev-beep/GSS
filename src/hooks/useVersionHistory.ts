@@ -45,8 +45,19 @@ export function saveSnapshot(graph: GSSGraph, label?: string): void {
       graph,
     }
     const updated = [snap, ...existing].slice(0, MAX_VERSIONS)
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
-  } catch { /* noop (localStorage full/unavailable) */ }
+    // Při plném localStorage (velké grafy, ~5 MB limit) se dřív zápis tiše
+    // nepovedl a historie se už nikdy neaktualizovala — zahodit nejstarší
+    // verze, dokud se nová nevejde.
+    while (updated.length > 0) {
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+        return
+      } catch {
+        if (updated.length === 1) return
+        updated.pop()
+      }
+    }
+  } catch { /* noop (localStorage unavailable) */ }
 }
 
 export function loadHistory(): VersionSnapshot[] {

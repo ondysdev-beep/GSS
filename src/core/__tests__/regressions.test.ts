@@ -78,7 +78,34 @@ describe('GraphValidator robustness', () => {
       ],
       [{ from_node: 'a', to_node: 'b', from_port: 0, to_port: 0 }, { from_node: 'b', to_node: 'a', from_port: 0, to_port: 0 }],
     ))
-    expect(issues.some((i) => i.code === 'ROUTING_LOOP')).toBe(true)
+    expect(issues.some((i) => i.code === 'ROUTING_LOOP' && i.severity === 'WARNING')).toBe(true)
+  })
+  it('rejects routing loops that branch back into themselves', () => {
+    const split = { split_mode: 0 as const, output_count: 2, weights: '1,1' }
+    const issues = validate(g(
+      [{ id: 'a', type: 7, label: 'A', position: at, data: split }],
+      [{ from_node: 'a', to_node: 'a', from_port: 0, to_port: 0 }, { from_node: 'a', to_node: 'a', from_port: 1, to_port: 0 }],
+    ))
+    expect(issues.some((i) => i.code === 'ROUTING_LOOP' && i.severity === 'ERROR')).toBe(true)
+  })
+  it('warns about formula variables that match no resource (typo → silently 0)', () => {
+    const issues = validate(g([
+      { id: 'pool', type: 0, label: 'Pool', position: at, data: { resource: 'gold', capacity: 10 } },
+      { id: 'f', type: 9, label: 'F', position: at, data: { expression: 'Gold * 2 + tick', output_resource: 'gold' } },
+    ]))
+    const w = issues.find((i) => i.code === 'FORMULA_VARIABLE')
+    expect(w?.message).toContain("'Gold'")
+    expect(w?.message).not.toContain("'tick'")
+  })
+  it('allows a Chance retry loop (one connection back per port)', () => {
+    const issues = validate(g(
+      [
+        { id: 'ch', type: 5, label: 'Roll', position: at, data: { success_chance: 30 } },
+        { id: 'pool', type: 0, label: 'Pool', position: at, data: { resource: 'loot', capacity: 10 } },
+      ],
+      [{ from_node: 'ch', to_node: 'pool', from_port: 0, to_port: 0 }, { from_node: 'ch', to_node: 'ch', from_port: 1, to_port: 0 }],
+    ))
+    expect(issues.some((i) => i.code === 'ROUTING_LOOP' && i.severity === 'ERROR')).toBe(false)
   })
 })
 

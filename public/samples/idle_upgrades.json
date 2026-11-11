@@ -1,0 +1,25 @@
+{
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Idle Upgrades",
+	"description": "Gold mine with two upgrades bought automatically from the bank: a cheap linear Pickaxe and an expensive compound Drill.",
+	"nodes": [
+		{"id": "gold_mine", "type": 1, "label": "Gold Mine", "position": {"x": 50, "y": 150}, "data": {"resource": "gold", "rate": 5}},
+		{"id": "bank", "type": 0, "label": "Bank", "position": {"x": 320, "y": 150}, "data": {"resource": "gold", "capacity": 1000000000}},
+		{"id": "pickaxe", "type": 11, "label": "Pickaxe", "position": {"x": 320, "y": 330}, "data": {"resource": "gold", "base_cost": 25, "cost_growth": 1.15, "bonus_per_level": 25, "bonus_mode": 0, "max_level": 0}},
+		{"id": "drill", "type": 11, "label": "Drill", "position": {"x": 320, "y": -20}, "data": {"resource": "gold", "base_cost": 250, "cost_growth": 3, "bonus_per_level": 50, "bonus_mode": 1, "max_level": 5}}
+	],
+	"connections": [
+		{"from_node": "gold_mine", "from_port": 0, "to_node": "bank", "to_port": 0},
+		{"from_node": "bank", "from_port": 0, "to_node": "drill", "to_port": 0},
+		{"from_node": "bank", "from_port": 0, "to_node": "pickaxe", "to_port": 0},
+		{"from_node": "drill", "from_port": 0, "to_node": "gold_mine", "to_port": 0},
+		{"from_node": "pickaxe", "from_port": 0, "to_node": "gold_mine", "to_port": 0}
+	],
+	"milestones": [
+		{"id": "pickaxe_10", "label": "Pickaxe level 10", "kind": "upgrade", "target": "pickaxe", "value": 10},
+		{"id": "first_drill", "label": "First Drill", "kind": "upgrade", "target": "drill", "value": 1},
+		{"id": "gold_1k", "label": "1K gold saved", "kind": "resource", "target": "gold", "value": 1000}
+	],
+	"simulation_seed": 42
+}

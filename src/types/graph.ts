@@ -16,9 +16,10 @@ export const NodeType = {
   TIMER:         8,
   FORMULA:       9,
   PLAYER_ACTION: 10,
+  UPGRADE:       11,
 } as const
 
-export type NodeTypeValue = 0 | 1 | 2 | 3 | 4 | 5 | 7 | 8 | 9 | 10
+export type NodeTypeValue = 0 | 1 | 2 | 3 | 4 | 5 | 7 | 8 | 9 | 10 | 11
 
 // Gate operator constants
 export const GateOperator = {
@@ -103,6 +104,20 @@ export interface PlayerActionData {
   cadence: number  // average seconds between firings
 }
 
+// Upgrade: an idle-game style upgrade the simulated player buys as soon as it
+// can afford it. Paid in `resource` from the pools connected INTO it; every
+// level boosts the nodes it is connected TO (production of Source/Converter/
+// Timer/Formula/Player Action, capacity of Pool). Level n+1 costs
+// base_cost × cost_growth^n.
+export interface UpgradeData {
+  resource: string         // currency it is paid with
+  base_cost: number        // price of level 1
+  cost_growth: number      // price multiplier per level (1.15 = +15 % per level)
+  bonus_per_level: number  // % boost per level
+  bonus_mode: 0 | 1        // 0 = additive (+b % per level), 1 = compound (×(1 + b %) per level)
+  max_level: number        // 0 = unlimited
+}
+
 export type NodeData =
   | PoolData
   | SourceData
@@ -114,6 +129,7 @@ export type NodeData =
   | TimerData
   | FormulaData
   | PlayerActionData
+  | UpgradeData
 
 // ==================== Core graph structures ====================
 
@@ -145,7 +161,21 @@ export interface GSSGraph {
   connections: GSSConnection[]
   personas?: import('./simulation').Persona[]
   scenarios?: import('./simulation').Scenario[]
+  /** Pacing goals measured in every run (e.g. "1M gold", "Pickaxe level 10"). */
+  milestones?: Milestone[]
   meta?: Record<string, unknown>
+}
+
+/**
+ * A pacing goal. `resource`: the total of resource `target` across all pools
+ * reaches `value`. `upgrade`: Upgrade node `target` reaches level `value`.
+ */
+export interface Milestone {
+  id: string
+  label: string
+  kind: 'resource' | 'upgrade'
+  target: string
+  value: number
 }
 
 // ==================== Type guards ====================
@@ -188,4 +218,8 @@ export function isFormulaData(_data: NodeData, type: NodeTypeValue): _data is Fo
 
 export function isPlayerActionData(_data: NodeData, type: NodeTypeValue): _data is PlayerActionData {
   return type === NodeType.PLAYER_ACTION
+}
+
+export function isUpgradeData(_data: NodeData, type: NodeTypeValue): _data is UpgradeData {
+  return type === NodeType.UPGRADE
 }

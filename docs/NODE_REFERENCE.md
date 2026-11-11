@@ -7,7 +7,7 @@ inspector.
 
 - [How a simulation runs](#how-a-simulation-runs)
 - [Rules that apply to every node](#rules-that-apply-to-every-node)
-- [Pool](#pool) · [Source](#source) · [Converter](#converter) · [Drain](#drain) · [Gate](#gate) · [Chance](#chance) · [Splitter](#splitter) · [Timer](#timer) · [Formula](#formula) · [Player Action](#player-action)
+- [Pool](#pool) · [Source](#source) · [Converter](#converter) · [Drain](#drain) · [Gate](#gate) · [Chance](#chance) · [Splitter](#splitter) · [Timer](#timer) · [Formula](#formula) · [Player Action](#player-action) · [Upgrade](#upgrade)
 - [Common patterns](#common-patterns)
 - [Validation messages](#validation-messages)
 
@@ -23,7 +23,8 @@ this order:
 4. **Formulas** produce
 5. **Player Actions** fire
 6. **Drains** consume
-7. **Gates** re-check their condition
+7. **Upgrades** buy every level they can afford
+8. **Gates** re-check their condition
 
 The order matters. A Drain sees what Sources and Converters added in the same
 tick, and a Gate that opens at the end of tick 10 starts letting flow through
@@ -55,7 +56,9 @@ the seed to see a different outcome of the same luck.
 
 **Loops.** Graphs may contain feedback loops. A loop made only of routing
 nodes (Gate, Splitter, Chance) is cut after 64 hops in a single tick, so it
-can't freeze the simulation.
+can't freeze the simulation. A routing loop that sends flow back into itself
+along two or more connections is an error, because the paths multiply on
+every pass.
 
 **FREE limits.** The FREE edition runs graphs of up to 15 nodes for up to
 120 simulated seconds.
@@ -233,6 +236,33 @@ Each tick it fires a random number of times that averages out to
 `Δt ÷ cadence`. The timing varies, the long-run average doesn't. For an
 exact interval use Timer.
 
+## Upgrade
+
+An idle-game upgrade: a pickaxe, a worker, a bigger warehouse. The simulated
+player buys it as soon as they can afford it.
+
+| Field | Meaning |
+|---|---|
+| Currency (resource) | What it is paid with, taken from the pools connected **into** the Upgrade (also through open Gates). |
+| Base cost | Price of level 1. |
+| Cost growth per level | Level n+1 costs `base cost × growth^n`. 1.15 means every level costs 15 % more. |
+| Bonus per level (%) | How much each level boosts the connected nodes. |
+| Bonus stacking | Additive: +10 %, +20 %, +30 %… (×1.1, ×1.2, ×1.3). Compound: ×1.1, ×1.21, ×1.33… |
+| Max level | 0 = unlimited. |
+
+The Upgrade boosts the nodes its output is connected to: the production of
+Sources, Converters (their output), Timers, Formulas and Player Actions, or
+the capacity of Pools. Its connections carry no resources; they are drawn
+dashed and, during replay, show the current level and multiplier.
+
+Upgrades buy at the end of the tick, after Drains, so they spend what the
+Drains left. They buy as many levels as they can afford, and the bonus
+applies from the next tick. Several Upgrades on one node multiply. When two
+Upgrades share a currency, the one created earlier buys first.
+
+The run report records when each level was bought, so you can see how fast
+the player progresses (Library → Samples → *Idle Upgrades*).
+
 ---
 
 ## Common patterns
@@ -253,6 +283,10 @@ legendary, 28.5 % rare (95 % × 30 %), 66.5 % common.
 **Crafting chain.** Wood pool → Converter (Wood → Planks) → Planks pool →
 Converter (Planks → Furniture) → Furniture pool.
 
+**Classic idle upgrade.** Source (Gold) → Gold pool → Upgrade (Gold, base
+cost 25, growth 1.15, +25 %) → back to the Source. Production grows with
+every level while each level takes longer to afford.
+
 ## Validation messages
 
 Shown under the editor. **Errors** stop the simulation from running;
@@ -272,3 +306,7 @@ warnings and info don't.
 | Formula is empty or has a syntax error | Error | Fix the expression. |
 | Feedback loop detected | Info | Loops are allowed; just make sure it's intended. |
 | Routing loop | Warning | A loop made only of Gates/Splitters/Chances; it is cut after 64 hops. |
+| Routing loop that branches back into itself | Error | A node in such a loop sends flow back into it along two or more connections, so the paths multiply on every pass. Keep one connection back per node (per output for Chance). |
+| Formula uses a name no resource has | Warning | Names are case-sensitive (`Gold` ≠ `gold`); an unknown name counts as 0. |
+| Upgrade has no pool to pay from / boosts nothing / is connected to a node it cannot boost | Warning | Connect currency Pool → Upgrade → the Source, Converter, Timer, Formula, Player Action or Pool it should boost. |
+| Upgrade cost is zero or cost growth not positive | Error | Use a base cost above 0 and a cost growth above 0 (usually 1.07–1.15). |
