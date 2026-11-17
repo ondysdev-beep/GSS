@@ -1,6 +1,6 @@
 [package]
 name = "gss"
-version = "3.5.0"
+version = "3.6.0"
 description = "GSS — Game Systems Simulator"
 authors = ["neopryus"]
 edition = "2021"

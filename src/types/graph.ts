@@ -163,7 +163,24 @@ export interface GSSGraph {
   scenarios?: import('./simulation').Scenario[]
   /** Pacing goals measured in every run (e.g. "1M gold", "Pickaxe level 10"). */
   milestones?: Milestone[]
+  /** How the player plays: sessions per day and what the game does while they are away. Missing = plays nonstop. */
+  play_schedule?: PlaySchedule
   meta?: Record<string, unknown>
+}
+
+/**
+ * Real-life play pattern. The day (24 h) is split evenly into
+ * `sessions_per_day` slots; each starts with a session of `session_minutes`.
+ * Between sessions the player is away: the automatic economy (Timers,
+ * Sources, Converters, Formulas, Drains) runs at `offline_speed` % for at most
+ * `offline_cap_hours` per break (0 = no limit); Player Actions and Upgrade
+ * purchases wait for the next session.
+ */
+export interface PlaySchedule {
+  sessions_per_day: number
+  session_minutes: number
+  offline_speed: number
+  offline_cap_hours: number
 }
 
 /**

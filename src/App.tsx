@@ -35,6 +35,8 @@ const MultiPersonaChart = lazy(() => import('./components/charts/MultiPersonaCha
 const IntelligenceDashboard = lazy(() => import('./components/ui/IntelligenceDashboard').then((m) => ({ default: m.IntelligenceDashboard })))
 const SimulationDashboard = lazy(() => import('./components/ui/SimulationDashboard').then((m) => ({ default: m.SimulationDashboard })))
 const MilestonesPanel = lazy(() => import('./components/ui/MilestonesPanel').then((m) => ({ default: m.MilestonesPanel })))
+const PlaySchedulePanel = lazy(() => import('./components/ui/PlaySchedulePanel').then((m) => ({ default: m.PlaySchedulePanel })))
+const UpgradeReportPanel = lazy(() => import('./components/ui/UpgradeReportPanel').then((m) => ({ default: m.UpgradeReportPanel })))
 const SampleGalleryPanel = lazy(() => import('./components/ui/SampleGalleryPanel').then((m) => ({ default: m.SampleGalleryPanel })))
 const AutoTunerPanel = lazy(() => import('./components/ui/AutoTunerPanel').then((m) => ({ default: m.AutoTunerPanel })))
 const VersionHistoryPanel = lazy(() => import('./components/ui/VersionHistoryPanel').then((m) => ({ default: m.VersionHistoryPanel })))
@@ -188,6 +190,12 @@ export default function App() {
 
               {/* Milníky — čas do dosažení cílů tempa */}
               <MilestonesPanel />
+
+              {/* Plán hraní (sezení + offline) a porovnání typů hráčů podle času hraní */}
+              <PlaySchedulePanel />
+
+              {/* Tempo upgradů: návratnost další úrovně, cenové zdi */}
+              <UpgradeReportPanel />
 
               {/* Charts */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

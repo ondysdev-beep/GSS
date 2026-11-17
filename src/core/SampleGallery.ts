@@ -1,5 +1,5 @@
 // SampleGallery.ts — port GDScript SampleGallery.gd
-// Metadata registr 12 vzorových projektů. Texty `expected` odpovídají
+// Metadata registr vzorových projektů. Texty `expected` odpovídají
 // skutečnému výsledku simulace (ověřeno spuštěním vzorků proti TickEngine v2).
 
 export interface SampleMeta {
@@ -29,6 +29,15 @@ export const SAMPLES: SampleMeta[] = [
     category: 'Idle',
     description: 'A gold mine with two upgrades the player buys as soon as they can: a cheap Pickaxe (+25 % per level, price +15 %) and an expensive compound Drill (×1.5 per level).',
     expected: 'Milestones: Pickaxe level 10 at 48s, first Drill at 119s (the greedy player buys the cheaper Pickaxe first). Saving 1K gold takes ~4 min — beyond the 120s FREE limit.',
+    nodes: 4,
+  },
+  {
+    name: 'Idle Week',
+    file: 'idle_week.json',
+    icon: '📅',
+    category: 'Idle',
+    description: 'A slow idle economy played in sessions (3 × 20 min a day, 25 % offline earnings for up to 8 h). Open Analysis → Play sessions, pick "30 days" and compare player types.',
+    expected: 'Nonstop: first Factory after 1h 13m, Factory maxed after 2d 7h. Casual (30 min a day): first Factory after 12h, maxed on day 15 with only 7h of play. Needs runs of days — beyond the 120s FREE limit.',
     nodes: 4,
   },
   {

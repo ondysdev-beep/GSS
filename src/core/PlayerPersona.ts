@@ -4,8 +4,9 @@
 import type { RNGInstance } from './SimRNG'
 import { createRNG } from './SimRNG'
 import { initState, simulateTick } from './TickEngine'
-import { validateScenarioTiming, resolveSeed, scenarioTickCount } from './ScenarioRunner'
+import { validateScenarioTiming, resolveSeed, scenarioTickCount, effectiveSamplingInterval } from './ScenarioRunner'
 import { createMilestoneTracker } from './Milestones'
+import { tickModeAt } from './PlaySchedule'
 import type { GSSGraph } from '../types/graph'
 import { NodeType } from '../types/graph'
 import type { Persona, PersonaStrategy } from '../types/simulation'
@@ -199,15 +200,25 @@ export function runPersonaSimulation(
   const ticks = scenarioTickCount(scenario.duration, scenario.dt)
   let lastSample = 0
 
+  const sampling = effectiveSamplingInterval(scenario.duration, scenario.sampling_interval)
+  let played = 0
   for (let totalTicks = 1; totalTicks <= ticks; totalTicks++) {
-    state = simulateTick(state, graph, scenario.dt, rng)
+    const mode = tickModeAt(graph.play_schedule, (totalTicks - 1) * scenario.dt)
+    state = simulateTick(state, graph, scenario.dt, rng, mode)
     const elapsed = totalTicks * scenario.dt
 
-    personaTick(persona, personaState, elapsed, state.pools, graph, personaRng)
+    if (mode.online) {
+      played += scenario.dt
+      personaTick(persona, personaState, elapsed, state.pools, graph, personaRng)
+    } else {
+      // Mimo hru se nerozhoduje; po návratu první rozhodnutí až po `cadence`
+      // (jinak by se zameškaná rozhodnutí dohnala v dávce).
+      personaState.next_decision_time = Math.max(personaState.next_decision_time, elapsed + persona.cadence)
+    }
     // Po útratě persony — milník měří, co hráč skutečně má.
-    milestones.update(state, elapsed)
+    milestones.update(state, elapsed, played)
 
-    if (elapsed - lastSample >= scenario.sampling_interval - 1e-9 || totalTicks === ticks) {
+    if (elapsed - lastSample >= sampling - 1e-9 || totalTicks === ticks) {
       timeSeries.push({
         time: Math.round(elapsed * 1000) / 1000,
         total_wealth: _totalWealth(state.pools),

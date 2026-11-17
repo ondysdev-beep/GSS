@@ -130,6 +130,10 @@ export interface RunSummary {
   upgrade_times?: Record<string, number[]>
   /** Milestone ID → time it was reached, -1 = not reached (only for graphs with milestones). */
   milestone_times?: Record<string, number>
+  /** Seconds the player actually played (only with a play schedule; otherwise equal to `elapsed`). */
+  played_time?: number
+  /** Milestone ID → play time (not calendar time) when it was reached, -1 = not reached (only with a play schedule). */
+  milestone_played_times?: Record<string, number>
 }
 
 export interface ChanceStat {

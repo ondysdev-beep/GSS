@@ -458,7 +458,11 @@ function _checkCycles(
   connections: ConnLike[],
   issues: ValidationIssue[],
 ): void {
-  const cycleNodes = _findCycleNodes(nodes.map((n) => String(n.id)), connections)
+  // Spoj z Upgrade nenese suroviny, jen bonus — smyčka "banka → upgrade →
+  // důl → banka" je jádro idle her, ne zpětná vazba toku.
+  const upgradeIds = new Set(nodes.filter((n) => n.type === NodeType.UPGRADE).map((n) => String(n.id)))
+  const flowConnections = connections.filter((c) => !upgradeIds.has(String(c.from_node)))
+  const cycleNodes = _findCycleNodes(nodes.map((n) => String(n.id)), flowConnections)
   if (cycleNodes.length > 0) {
     issues.push({
       code: 'CYCLE_DETECTED',

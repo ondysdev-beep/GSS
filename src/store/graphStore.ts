@@ -6,7 +6,7 @@ import { TICK_SPEC_VERSION } from '../core/TickEngine'
 import { CommandManager } from '../core/CommandManager'
 import { normalizeGraph } from '../core/GraphNormalizer'
 import { getSettings } from './settingsStore'
-import type { GSSGraph, GSSNode, GSSConnection, Milestone } from '../types/graph'
+import type { GSSGraph, GSSNode, GSSConnection, Milestone, PlaySchedule } from '../types/graph'
 
 interface GraphStore {
   graph: GSSGraph
@@ -29,6 +29,8 @@ interface GraphStore {
   setName: (name: string) => void
   /** `mergeKey` as in updateNode (typing into one milestone field = one undo step). */
   setMilestones: (milestones: Milestone[], mergeKey?: string) => void
+  /** `undefined` = the player plays nonstop (removes the schedule). */
+  setPlaySchedule: (schedule: PlaySchedule | undefined, mergeKey?: string) => void
   markClean: () => void
   newGraph: () => void
   undo: () => void
@@ -112,6 +114,14 @@ export const useGraphStore = create<GraphStore>((set) => {
     setName: (name) => set((s) => mutate(s, { name }, 'graph:name')),
 
     setMilestones: (milestones, mergeKey) => set((s) => mutate(s, { milestones }, mergeKey)),
+
+    setPlaySchedule: (schedule, mergeKey) => set((s) => {
+      const { play_schedule: _old, ...rest } = s.graph
+      void _old
+      // Bez plánu se klíč úplně odstraní (soubor zůstane jako dřív).
+      const g: GSSGraph = schedule ? { ...rest, play_schedule: schedule } : rest
+      return mutate({ ...s, graph: g }, {}, mergeKey)
+    }),
 
     markClean: () => set({ isDirty: false }),
 

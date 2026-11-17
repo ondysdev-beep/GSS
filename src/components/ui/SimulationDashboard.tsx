@@ -170,8 +170,10 @@ export function SimulationDashboard() {
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-muted">Duration (s)</span>
-            <NumericInput className={inputCls} value={scenario.duration} min={0.01} max={1000000}
+            <span className="text-muted">
+              Duration (s){scenario.duration >= 3600 && <span className="text-white/50"> = {formatDuration(scenario.duration)}</span>}
+            </span>
+            <NumericInput className={inputCls} value={scenario.duration} min={0.01} max={10000000}
               onCommit={(v) => setScenario({ duration: v })} />
           </label>
           <label className="flex flex-col gap-1">
@@ -475,6 +477,8 @@ function RunSummaryTable({ report, label }: { report: RunReport; label: string }
       </table>
       <div className="text-muted text-xs mt-2">
         {report.summary.total_ticks} ticks · seed {report.seed_used} · {formatDuration(report.summary.elapsed)} simulated
+        {report.summary.played_time !== undefined && report.summary.played_time < report.summary.elapsed &&
+          ` · ${formatDuration(report.summary.played_time)} played`}
       </div>
     </div>
   )

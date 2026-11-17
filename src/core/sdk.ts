@@ -18,6 +18,7 @@ export {
   getTickSpecDescription, getSemanticsNotes, TICK_SPEC_VERSION,
   upgradeCost, upgradeMultiplier, upgradeBoosts,
 } from './TickEngine'
+export type { TickMode } from './TickEngine'
 export { createMilestoneTracker, graphMilestones } from './Milestones'
 export type { MilestoneTimes, MilestoneTracker } from './Milestones'
 export { formatNumber, formatMultiplier, formatDuration } from './formatNumber'
@@ -43,13 +44,22 @@ export { compareReports } from './ScenarioComparer'
 export { diffGraphs, formatDiffChange } from './GraphDiffer'
 export { calculateHealthScore } from './HealthScoreCalculator'
 export { runPersonaSimulation, runAllPersonaSimulations, getAllPresets } from './PlayerPersona'
+export {
+  tickModeAt, playedSeconds, playsNonstop, describePlaySchedule, defaultPlaySchedule,
+  normalizePlaySchedule, graphWithProfile, PLAYTIME_PROFILES, DAY_SECONDS,
+} from './PlaySchedule'
+export type { PlaytimeProfile } from './PlaySchedule'
+export { runPlaytimeComparison, comparisonProfiles } from './PlaytimeComparison'
+export type { PlaytimeRun } from './PlaytimeComparison'
+export { analyzeUpgrades, PRICE_WALL_RATIO } from './UpgradeReport'
+export type { UpgradeInsight, UpgradeNote, UpgradeNoteKind } from './UpgradeReport'
 
 // ── Šablony ─────────────────────────────────────────────────────────────────
 export { TEMPLATE_LIST, getTemplate } from './GraphTemplates'
 export { customizeTemplate } from './TemplateCustomizer'
 
 // ── Typy (grafový formát, simulační stav, výsledky) ─────────────────────────
-export type { GSSGraph, GSSNode, GSSConnection, NodeData, NodeTypeValue, Milestone, UpgradeData } from '../types/graph'
+export type { GSSGraph, GSSNode, GSSConnection, NodeData, NodeTypeValue, Milestone, UpgradeData, PlaySchedule } from '../types/graph'
 export { NodeType, GSS_FORMAT_VERSION } from '../types/graph'
 export type {
   SimState, PoolState, RunReport, HealthScore, ValidationIssue, Scenario,

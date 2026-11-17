@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "gss"
-version = "3.5.0"
+version = "3.6.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

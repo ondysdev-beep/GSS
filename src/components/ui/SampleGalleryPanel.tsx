@@ -1,4 +1,4 @@
-// SampleGalleryPanel.tsx — Galerie 12 vzorových projektů s načítáním
+// SampleGalleryPanel.tsx — Galerie vzorových projektů s načítáním
 import { useState } from 'react'
 import { SAMPLES, getCategories, loadSample } from '../../core/SampleGallery'
 import { useGraphStore } from '../../store/graphStore'

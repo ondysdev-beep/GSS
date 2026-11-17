@@ -4,6 +4,7 @@
 import { SimRNG, createRNG } from './SimRNG'
 import { TICK_SPEC_VERSION, initState, simulateTick, applyInitialOverrides } from './TickEngine'
 import { validateScenarioTiming, scenarioTickCount } from './ScenarioRunner'
+import { tickModeAt } from './PlaySchedule'
 import type { GSSGraph } from '../types/graph'
 import type { Scenario, MCReport, MCPoolStats } from '../types/simulation'
 import { defaultScenario } from '../types/simulation'
@@ -53,7 +54,7 @@ export function runMonteCarlo(
     applyInitialOverrides(state, graph, sc.initial_overrides)
 
     for (let t = 0; t < ticksPerRun; t++) {
-      state = simulateTick(state, graph, sc.dt, rng)
+      state = simulateTick(state, graph, sc.dt, rng, tickModeAt(graph.play_schedule, t * sc.dt))
     }
 
     for (const [pid, pool] of Object.entries(state.pools)) {

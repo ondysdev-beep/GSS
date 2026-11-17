@@ -18,11 +18,24 @@ import type {
 } from '../types/simulation'
 import { defaultScenario } from '../types/simulation'
 import { createMilestoneTracker } from './Milestones'
+import { tickModeAt } from './PlaySchedule'
 
 export { defaultScenario }
 
 /** Upper bound for ticks in a single run — protects the UI thread from multi-minute freezes. */
 export const MAX_SCENARIO_TICKS = 1_000_000
+
+/**
+ * Upper bound for recorded time-series frames. Multi-day runs (play sessions)
+ * with a 1 s sampling interval would otherwise keep hundreds of thousands of
+ * frames in memory and make the charts unusable; the interval is widened.
+ */
+export const MAX_TIME_SERIES_FRAMES = 5000
+
+/** Sampling interval actually used for a run (never more than MAX_TIME_SERIES_FRAMES frames). */
+export function effectiveSamplingInterval(duration: number, samplingInterval: number): number {
+  return Math.max(samplingInterval, duration / MAX_TIME_SERIES_FRAMES)
+}
 
 // Tolerance pro porovnání časů složených z `ticks * dt` (např. 7 × 0.1 =
 // 0.7000000000000001) — bez ní vzorkování občas vynechá snímek.
@@ -76,7 +89,7 @@ export function runScenario(
 
   const duration = sc.duration
   const dt = sc.dt
-  const samplingInterval = sc.sampling_interval
+  const samplingInterval = effectiveSamplingInterval(duration, sc.sampling_interval)
   const thresholds = sc.thresholds ?? {}
 
   const effectiveSeed = resolveSeed(sc.seed_override, graph.simulation_seed)
@@ -115,10 +128,15 @@ export function runScenario(
   const totalTicksPlanned = scenarioTickCount(duration, dt)
   let totalTicks = 0
 
+  const schedule = graph.play_schedule
+  let played = 0
+
   while (totalTicks < totalTicksPlanned) {
-    state = simulateTick(state, graph, dt, rng)
+    const mode = tickModeAt(schedule, totalTicks * dt)
+    state = simulateTick(state, graph, dt, rng, mode)
     totalTicks++
     const elapsed = totalTicks * dt
+    if (mode.online) played += dt
 
     for (const pid of Object.keys(state.pools)) {
       const amt = state.pools[pid].amount
@@ -135,7 +153,7 @@ export function runScenario(
       const times = upgradeTimes[uid]
       while (times.length < level) times.push(Math.round(elapsed * 1000) / 1000)
     }
-    milestones.update(state, elapsed)
+    milestones.update(state, elapsed, played)
 
     const isLast = totalTicks === totalTicksPlanned
     if (elapsed - lastSample >= samplingInterval - TIME_EPSILON || isLast) {
@@ -170,6 +188,12 @@ export function runScenario(
   }
   const milestoneTimes = milestones.result()
   if (milestoneTimes) summary.milestone_times = milestoneTimes
+  // Jen s plánem hraní — bez něj je odehraný čas totožný s `elapsed`.
+  if (schedule) {
+    summary.played_time = Math.round(played * 1000) / 1000
+    const playedTimes = milestones.playedResult()
+    if (playedTimes) summary.milestone_played_times = playedTimes
+  }
 
   return {
     tick_spec_version: TICK_SPEC_VERSION,

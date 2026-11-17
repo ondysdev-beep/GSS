@@ -52,7 +52,7 @@ sudo dpkg -i gss_*_amd64.deb
 | Deterministic simulation | ✅ | ✅ |
 | Health score & verdict | ✅ | ✅ |
 | Full Intelligence Dashboard (sub-scores, failures, bottlenecks, exploits, RNG) | ❌ | ✅ |
-| 13 sample projects + 5 templates + Community Library | ✅ | ✅ |
+| 14 sample projects + 5 templates + Community Library | ✅ | ✅ |
 | AI Economy Generator (BYOK, desktop only) | ✅ | ✅ |
 | Economy Diff Viewer + Version History | ✅ | ✅ |
 | Save/Load .gss files | ✅ | ✅ |
@@ -67,6 +67,8 @@ sudo dpkg -i gss_*_amd64.deb
 | PDF Report + Web Share HTML | ❌ | ✅ |
 | Multi-Persona Dashboard | ✅ | ✅ |
 | Milestones (time to reach a resource total or upgrade level) | ✅ | ✅ |
+| Play sessions + offline earnings, player types by play time (runs of days) | ✅ (120 s runs) | ✅ |
+| Upgrade pacing report (payback, price walls) | ✅ | ✅ |
 | Graph size / simulated time per run | 15 nodes / 120 s | unlimited |
 
 **Get PRO:** [neopryus.itch.io/idle-economy-simulator](https://neopryus.itch.io/idle-economy-simulator)

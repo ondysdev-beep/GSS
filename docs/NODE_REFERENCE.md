@@ -30,6 +30,30 @@ The order matters. A Drain sees what Sources and Converters added in the same
 tick, and a Gate that opens at the end of tick 10 starts letting flow through
 in tick 11.
 
+### Play sessions (optional)
+
+By default the player never leaves the game. In Analysis → Play sessions you
+can say how a real player plays instead: a number of sessions per day and
+their length. The day is split evenly into that many slots and each slot
+starts with a session. Between sessions the player is away:
+
+- Timers, Sources, Converters, Formulas and Drains keep running at the
+  **offline speed** (e.g. 50 % = everything automatic runs at half speed;
+  0 % = the game stops while the player is away).
+- After the **offline limit** (hours per break, 0 = no limit) nothing
+  happens until the player returns.
+- Player Actions and Upgrade purchases wait for the next session.
+
+The schedule is saved in the .gss file and applies to every run, including
+personas and Monte Carlo. Milestones then show both the calendar time and
+the time actually played ("day 3 (2d 4h) · 1h 10m played"). Sessions matter
+over days, so use the 1 / 7 / 30-day run lengths in the panel (they also
+raise Δt to keep the run fast). FREE runs stop at 120 s of simulated time.
+
+**Player types by play time** runs the same game for 30 min, 1 h and 5 h a
+day and nonstop (plus your own schedule) and compares when each one reaches
+your milestones. Offline speed and limit come from the graph's schedule.
+
 ## Rules that apply to every node
 
 **Push and pull.** Sources, Converters (their output), Timers, Formulas and
@@ -262,6 +286,20 @@ Upgrades share a currency, the one created earlier buys first.
 
 The run report records when each level was bought, so you can see how fast
 the player progresses (Library → Samples → *Idle Upgrades*).
+
+After a run, **Analysis → Upgrades — pacing and payback** shows for each
+Upgrade the level reached, the cost of the next level and roughly how long
+that level takes to pay for itself (its cost ÷ the extra production of the
+same currency it adds; converters are assumed to have enough input). It
+warns about:
+
+- **Price walls**: a level that took 5× longer than the one before.
+- **Stalls**: the next level is still out of reach after 5× the time the
+  last one took.
+- Upgrades that were **never bought**, or whose next level adds nothing.
+
+Walls and stalls are measured on a run without play sessions, because
+coming back from a break makes the player buy many levels at once.
 
 ---
 

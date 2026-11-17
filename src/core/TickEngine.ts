@@ -141,6 +141,7 @@ export function getSemanticsNotes(): string[] {
     'Converter: only accepts its configured input resource, and its input buffer holds at most one tick (or one cycle) of input — any surplus pushed into it is discarded.',
     'Capacity: Pools have a max capacity. Overflow is silently discarded.',
     'Upgrades: connections from an Upgrade carry no resources — they only apply its bonus. Several Upgrades on one node multiply. Upgrades are bought in node order, so an earlier Upgrade has priority over a shared currency.',
+    'Play sessions: with a play schedule, ticks between sessions are offline — Timers, Sources, Converters, Formulas and Drains run at the offline speed (for at most the offline limit per break), Player Actions and Upgrade purchases wait for the next session.',
   ]
 }
 
@@ -264,6 +265,16 @@ export function applyInitialOverrides(
 
 // ==================== Canonical tick (pure — returns new state) ====================
 
+/**
+ * Whether the player is playing during this tick. Offline, the automatic
+ * economy runs at `speed` (0–1) and Player Actions / Upgrade purchases wait.
+ * Omitted = online (classic nonstop simulation).
+ */
+export interface TickMode {
+  online: boolean
+  speed: number
+}
+
 interface TickContext {
   s: SimState
   rng: RNGInstance
@@ -337,7 +348,19 @@ function _boostOf(id: string, ctx: TickContext): number {
 // non-determinism bug this signature previously guarded against (DEVLOG
 // fix 1.5). Passing the RNG explicitly also makes it impossible for two
 // concurrent simulations (e.g. Monte Carlo runs) to influence each other.
-export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng: RNGInstance): SimState {
+export function simulateTick(
+  state: SimState,
+  graph: GSSGraph,
+  delta = 1.0,
+  rng: RNGInstance,
+  mode?: TickMode,
+): SimState {
+  // Hráč mimo hru: automatická ekonomika běží zpomaleně (offline rychlost),
+  // akce hráče a nákupy upgradů čekají na další sezení.
+  const online = mode?.online ?? true
+  const speed = online ? 1 : Math.max(0, Math.min(1, mode?.speed ?? 0))
+  const auto = delta * speed
+
   // Deep-copy state so original is never mutated
   const s: SimState = {
     tick: state.tick + 1,
@@ -350,8 +373,11 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     upgrade_levels: { ...state.upgrade_levels },
   }
 
+  // Offline po vyčerpání limitu: nic se neděje (jen běží čas).
+  if (!online && auto <= 0) return s
+
   const nodes = graph.nodes
-  const ctx = _buildContext(s, graph, delta, rng)
+  const ctx = _buildContext(s, graph, auto, rng)
 
   // Upgrade napojený na Pool zvětšuje jeho kapacitu (základ = kapacita z dat uzlu).
   for (const [targetId, m] of ctx.boost) {
@@ -371,7 +397,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
 
     const timer = s.timer_data[nid]
     if (!timer) continue
-    timer.accumulated += delta
+    timer.accumulated += auto
 
     // Fire once per elapsed interval (handles delta > interval without loss).
     // Capped (oprava B2): `interval` má v UI minimum 0.001s a `dt` nemá
@@ -395,7 +421,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     if (node.type !== NodeType.SOURCE) continue
     const nid = String(node.id)
     const data = nodeData(node)
-    _distributeToConnected(nid, str(data.resource), num(data.rate, 1.0) * delta * _boostOf(nid, ctx), ctx)
+    _distributeToConnected(nid, str(data.resource), num(data.rate, 1.0) * auto * _boostOf(nid, ctx), ctx)
   }
 
   // Step 3: Converters
@@ -413,7 +439,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
     // dřív vedla k Infinity/zápornému `needed` a k růstu bufferu.
     if (cycleTime <= 0 || inputAmount <= 0) continue
 
-    const needed = inputAmount * (delta / cycleTime)
+    const needed = inputAmount * (auto / cycleTime)
     let consumed = 0
 
     const buf = s.converter_buffers[nid]
@@ -448,7 +474,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
       const data = nodeData(node)
       let produced = 0
       try {
-        produced = evaluateFormula(str(data.expression, '0'), sharedVariables) * delta * _boostOf(String(node.id), ctx)
+        produced = evaluateFormula(str(data.expression, '0'), sharedVariables) * auto * _boostOf(String(node.id), ctx)
       } catch {
         // Neplatný výraz — GraphValidator na to upozorní; za běhu simulace
         // produkujeme 0 místo pádu celé simulace kvůli jednomu špatnému uzlu.
@@ -462,7 +488,7 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
 
   // Step 5: Player Actions — stochastic trigger, average cadence
   for (const node of nodes) {
-    if (node.type !== NodeType.PLAYER_ACTION) continue
+    if (node.type !== NodeType.PLAYER_ACTION || !online) continue
     const nid = String(node.id)
     const data = nodeData(node)
     const resource = str(data.resource)
@@ -486,12 +512,12 @@ export function simulateTick(state: SimState, graph: GSSGraph, delta = 1.0, rng:
   for (const node of nodes) {
     if (node.type !== NodeType.DRAIN) continue
     const data = nodeData(node)
-    _consumeFromConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * delta, ctx, 0)
+    _consumeFromConnected(String(node.id), str(data.resource), num(data.rate, 1.0) * auto, ctx, 0)
   }
 
   // Step 7: Upgrades — buy every level that is affordable now (bonus from the next tick)
   for (const node of nodes) {
-    if (node.type !== NodeType.UPGRADE || !s.upgrade_levels) continue
+    if (node.type !== NodeType.UPGRADE || !s.upgrade_levels || !online) continue
     const nid = String(node.id)
     const data = nodeData(node)
     const resource = str(data.resource)

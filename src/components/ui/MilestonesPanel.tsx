@@ -47,6 +47,7 @@ export function MilestonesPanel() {
   }
 
   const times = reportA?.summary.milestone_times
+  const played = reportA?.summary.milestone_played_times
   const runDuration = reportA?.summary.elapsed ?? 0
 
   return (
@@ -116,7 +117,12 @@ export function MilestonesPanel() {
                   <td className="py-1 pr-2 font-mono whitespace-nowrap">
                     {t === undefined ? <span className="text-muted">run again</span>
                       : t < 0 ? <span className="text-warning">not in {formatDuration(runDuration)}</span>
-                        : <span className="text-white" title={`${formatNumber(t)} s`}>{formatDuration(t)}</span>}
+                        : <span className="text-white" title={`${formatNumber(t)} s`}>
+                            {formatDuration(t)}
+                            {played?.[m.id] !== undefined && played[m.id] >= 0 && played[m.id] < t - 1e-6 && (
+                              <span className="text-muted" title="Time the player actually played (play sessions)"> · {formatDuration(played[m.id])} played</span>
+                            )}
+                          </span>}
                   </td>
                   <td className="py-1 text-right">
                     <button onClick={() => remove(m.id)} title="Remove milestone"

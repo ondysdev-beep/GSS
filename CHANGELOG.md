@@ -3,6 +3,26 @@
 User-facing summary of changes. For a detailed, file-level developer log,
 see [DEVLOG.md](./DEVLOG.md).
 
+## 3.6.0 — Play sessions, player types by play time, upgrade payback
+
+**New: Play sessions and offline earnings**
+- Tell GSS how a real player plays (Analysis → Play sessions): sessions per day and their length. Between sessions the automatic economy keeps running at the offline speed you set (e.g. 50 %) for up to an offline limit (e.g. 8 h); Player Actions and Upgrade purchases wait for the next session.
+- The schedule is saved in the .gss file and applies to every run, persona and Monte Carlo run. Milestones show both calendar time and time actually played.
+- Quick run lengths of 1, 7 and 30 days (with a larger time step so they stay fast). The duration field shows long runs as days and hours.
+
+**New: Player types by play time**
+- Runs the same game for a Casual (30 min a day), Regular (1 h), Hardcore (5 h) and Nonstop player — plus your own schedule — and shows when each one reaches your milestones, with a wealth chart.
+
+**New: Upgrade pacing and payback**
+- After a run, every Upgrade shows its level, the cost of the next level and roughly how long that level takes to pay for itself.
+- Warnings for price walls (a level that takes 5× longer than the previous one), stalls, upgrades that are never bought and levels that add nothing.
+
+**New sample: Idle Week** — a slow idle economy played in sessions, made for the player-type comparison.
+
+**Fixes and changes**
+- A graph with an Upgrade no longer shows a "cycle" info message for the normal bank → upgrade → producer loop.
+- Very long runs keep at most 5000 chart points (the sampling interval is widened automatically) instead of hundreds of thousands.
+
 ## 3.5.0 — Upgrade node, milestones, freeze fix
 
 **New: Upgrade node**

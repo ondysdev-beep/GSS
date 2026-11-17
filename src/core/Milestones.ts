@@ -19,30 +19,38 @@ export function graphMilestones(graph: Pick<GSSGraph, 'milestones'>): Milestone[
 
 export interface MilestoneTracker {
   /** Call with the state after every tick (and once with the initial state at t = 0). */
-  update(state: SimState, elapsed: number): void
+  /** `played` = seconds the player has actually played so far (defaults to `elapsed`). */
+  update(state: SimState, elapsed: number, played?: number): void
   /** null when the graph has no milestones (reports keep their old shape). */
   result(): MilestoneTimes | null
+  /** Play time (not calendar time) at which each milestone was reached; -1 = not reached. */
+  playedResult(): MilestoneTimes | null
 }
 
 export function createMilestoneTracker(graph: Pick<GSSGraph, 'milestones'>): MilestoneTracker {
   const milestones = graphMilestones(graph)
   const times: MilestoneTimes = {}
-  for (const m of milestones) times[m.id] = -1
+  const playedTimes: MilestoneTimes = {}
+  for (const m of milestones) { times[m.id] = -1; playedTimes[m.id] = -1 }
   let pending = milestones.length
 
   return {
-    update(state, elapsed) {
+    update(state, elapsed, played = elapsed) {
       if (pending === 0) return
       for (const m of milestones) {
         if (times[m.id] >= 0) continue
         if (currentValue(m, state) >= m.value) {
           times[m.id] = Math.round(elapsed * 1000) / 1000
+          playedTimes[m.id] = Math.round(played * 1000) / 1000
           pending--
         }
       }
     },
     result() {
       return milestones.length > 0 ? { ...times } : null
+    },
+    playedResult() {
+      return milestones.length > 0 ? { ...playedTimes } : null
     },
   }
 }

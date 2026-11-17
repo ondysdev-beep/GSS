@@ -1,6 +1,6 @@
 {
-  "version": "3.5.0",
-  "changelog": "New Upgrade node and Milestones (time to reach), compact large numbers, fix for a freeze on branching routing loops, auto-save fixes",
+  "version": "3.6.0",
+  "changelog": "Play sessions with offline earnings, player types by play time (30 min vs 5 h a day), upgrade payback and price-wall warnings, new Idle Week sample",
   "download_url": "https://neopryus.itch.io/idle-economy-simulator",
   "mandatory": false
 }

@@ -1,0 +1,27 @@
+{
+	"version": "3.0",
+	"tick_spec_version": 2,
+	"name": "Idle Week",
+	"description": "A slow idle economy played in sessions: 3 × 20 min a day, the mine keeps working at 25 % for up to 8 h while the player is away. Compare player types in Analysis → Play sessions.",
+	"nodes": [
+		{"id": "gold_mine", "type": 1, "label": "Gold Mine", "position": {"x": 50, "y": 150}, "data": {"resource": "gold", "rate": 1}},
+		{"id": "bank", "type": 0, "label": "Bank", "position": {"x": 320, "y": 150}, "data": {"resource": "gold", "capacity": 1000000000000000}},
+		{"id": "pickaxe", "type": 11, "label": "Pickaxe", "position": {"x": 320, "y": 330}, "data": {"resource": "gold", "base_cost": 10, "cost_growth": 1.15, "bonus_per_level": 10, "bonus_mode": 0, "max_level": 0}},
+		{"id": "factory", "type": 11, "label": "Factory", "position": {"x": 320, "y": -20}, "data": {"resource": "gold", "base_cost": 2000, "cost_growth": 6, "bonus_per_level": 100, "bonus_mode": 1, "max_level": 5}}
+	],
+	"connections": [
+		{"from_node": "gold_mine", "from_port": 0, "to_node": "bank", "to_port": 0},
+		{"from_node": "bank", "from_port": 0, "to_node": "factory", "to_port": 0},
+		{"from_node": "bank", "from_port": 0, "to_node": "pickaxe", "to_port": 0},
+		{"from_node": "factory", "from_port": 0, "to_node": "gold_mine", "to_port": 0},
+		{"from_node": "pickaxe", "from_port": 0, "to_node": "gold_mine", "to_port": 0}
+	],
+	"milestones": [
+		{"id": "first_factory", "label": "First Factory", "kind": "upgrade", "target": "factory", "value": 1},
+		{"id": "factory_3", "label": "Factory level 3", "kind": "upgrade", "target": "factory", "value": 3},
+		{"id": "factory_max", "label": "Factory maxed (5)", "kind": "upgrade", "target": "factory", "value": 5},
+		{"id": "pickaxe_50", "label": "Pickaxe level 50", "kind": "upgrade", "target": "pickaxe", "value": 50}
+	],
+	"play_schedule": {"sessions_per_day": 3, "session_minutes": 20, "offline_speed": 25, "offline_cap_hours": 8},
+	"simulation_seed": 42
+}

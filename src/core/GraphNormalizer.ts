@@ -11,6 +11,7 @@
 import { GSS_FORMAT_VERSION, NodeType } from '../types/graph'
 import type { GSSGraph, GSSNode, GSSConnection, Milestone, NodeTypeValue } from '../types/graph'
 import { TICK_SPEC_VERSION } from './TickEngine'
+import { normalizePlaySchedule } from './PlaySchedule'
 
 export class GraphFormatError extends Error {
   constructor(message: string) {
@@ -93,6 +94,8 @@ export function normalizeGraph(raw: unknown, fallbackName = 'Untitled Economy'):
     const milestones = (r.milestones as unknown[]).filter(isRecord).map(normalizeMilestone)
     if (milestones.length > 0) graph.milestones = milestones
   }
+  const schedule = normalizePlaySchedule(r.play_schedule)
+  if (schedule) graph.play_schedule = schedule
   if (isRecord(r.meta)) graph.meta = r.meta
   return graph
 }

@@ -1,5 +1,27 @@
 # GSS Development Log
 
+## v3.6.0 — Play sessions, player types by play time, upgrade payback
+
+User-facing summary: CHANGELOG.md → "3.6.0". File-level notes:
+
+### Play sessions (offline progress)
+- `types/graph.ts`: `GSSGraph.play_schedule?: PlaySchedule` (`sessions_per_day`, `session_minutes`, `offline_speed` %, `offline_cap_hours`, 0 = no limit). Missing = nonstop, so existing graphs and reports are unchanged. `GraphNormalizer.ts` repairs/clamps it (`normalizePlaySchedule`), `graphStore.setPlaySchedule` (undoable, `undefined` removes the key).
+- `core/PlaySchedule.ts`: the day is split into `sessions_per_day` equal slots, each starting with a session; `tickModeAt(schedule, t)` decides by the tick's start time; `playedSeconds`, `describePlaySchedule`, `PLAYTIME_PROFILES` (Casual 2×15 min, Regular 3×20 min, Hardcore 5×60 min, Nonstop), `graphWithProfile` (offline settings stay from the graph).
+- `TickEngine.simulateTick(..., mode?: TickMode)`: offline ticks run Timers/Sources/Converters/Formulas/Drains with `dt × speed` (converter input limit too, via `ctx.delta`), skip Player Actions and Upgrade purchases; speed 0 (past the offline limit) returns the copied state right away. No mode = online = previous behaviour (all existing tests unchanged).
+- `ScenarioRunner`, `PlayerPersona` (persona decides only online; after a break the first decision comes one cadence later), `MonteCarloSimulator` pass the mode. `summary.played_time` and `summary.milestone_played_times` only with a schedule; `MilestoneTracker.update(state, elapsed, played)` + `playedResult()`.
+- `effectiveSamplingInterval`: at most `MAX_TIME_SERIES_FRAMES = 5000` frames per run (also persona runs) — multi-day runs at 1 s sampling kept hundreds of thousands of frames.
+- `core/PlaytimeComparison.ts`: `runPlaytimeComparison` (one `runScenario` per profile), `comparisonProfiles` adds the graph's own schedule when it is not a preset.
+- UI: `PlaySchedulePanel.tsx` (Analysis tab: schedule editor, 1/7/30-day run lengths with dt 5/10/60, comparison table + wealth chart), played time in `MilestonesPanel`, `SimulationDashboard` (summary line, duration shown as days/hours, max 10 M s).
+
+### Upgrade pacing report
+- `core/UpgradeReport.ts`: `analyzeUpgrades(graph, report)` — next-level cost, extra production of the upgrade's own currency (`upgradeBoosts` at L vs L+1 × base production of Source/Timer/Player Action/Converter/Formula targets; Formula evaluated with final totals), payback = cost ÷ extra. Notes: `never_bought`, `price_wall` (level gap ≥ 5× previous, min 5 % of the run / 10 ticks), `stalled`, `slow_payback` (longer than the run), `no_gain`. With a schedule, walls/stalls come from a nonstop re-run (coming back from a break buys many levels at once, which looked like a wall).
+- UI: `UpgradeReportPanel.tsx` (Analysis tab, only for graphs with Upgrade nodes, recomputed per run).
+
+### Other
+- `GraphValidator._checkCycles` ignores connections from Upgrade nodes (bank → upgrade → producer is not a flow loop; every upgrade graph showed CYCLE_DETECTED).
+- Sample `public/samples/idle_week.json` (slow economy + schedule + upgrade milestones). SDK exports the new modules.
+- Tests: `PlaySchedule.test.ts` (20).
+
 ## v3.5.0 — Upgrade node, milestones, stress-test fixes
 
 User-facing summary: CHANGELOG.md → "3.5.0". File-level notes:
